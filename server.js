@@ -41,7 +41,7 @@ app.post("/api/analyze-image", upload.single("image"), async (req, res) => {
       "Не давай торговых сигналов, прогнозов направления, рекомендаций купить/продать, времени входа, ставок или обещаний доходности. Не выдумывай цифры и индикаторы. Если подписи или изображение неразборчивы, прямо сообщи об этом. Это образовательное описание, не финансовая рекомендация."
     ].join("\n");
 
-    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent", {
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -55,16 +55,16 @@ app.post("/api/analyze-image", upload.single("image"), async (req, res) => {
             { inline_data: { mime_type: req.file.mimetype, data: req.file.buffer.toString("base64") } }
           ]
         }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 700 }
+        generationConfig: { temperature: 0.2, maxOutputTokens: 500 }
       }),
-      signal: AbortSignal.timeout(45000)
+      signal: AbortSignal.timeout(20000)
     });
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       console.error("Gemini API error:", response.status, payload?.error?.message || "unknown error");
-      return res.status(502).json({ error: response.status === 429
-        ? "Превышен лимит запросов Gemini. Попробуй позже."
+      return res.status(502).json({ error: response.status === 429 || response.status === 503
+        ? "AI сейчас перегружен. Подожди 10–20 секунд и попробуй снова."
         : "Gemini не смог обработать изображение. Проверь API-ключ и попробуй снова." });
     }
     const text = (payload.candidates?.[0]?.content?.parts || [])
@@ -72,7 +72,7 @@ app.post("/api/analyze-image", upload.single("image"), async (req, res) => {
       .join("\n")
       .trim();
     if (!text) return res.status(502).json({ error: "AI не вернул текст. Попробуй загрузить более чёткое изображение." });
-    return res.json({ analysis: text, model: "gemini-3.8-flash", educational: true });
+    return res.json({ analysis: text, model: "gemini-2.5-flash", educational: true });
   } catch (error) {
     console.error("Image analysis failed:", error.message);
     return res.status(504).json({ error: "Не удалось завершить анализ. Проверь соединение и попробуй ещё раз." });
