@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b1020">
+  <meta name="description" content="SIGNAL AI — учебная панель рыночных графиков и технических индикаторов.">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <title>SIGNAL AI · Market Lab</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b1020;--panel:#131c30;--line:#26334d;--muted:#91a0bd;--text:#f2f5ff;--blue:#8c9cff;--green:#56d6a0;--red:#ff8295}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#172344 0%,var(--bg) 55%);color:var(--text);font:15px/1.45 system-ui,-apple-system,sans-serif;padding:calc(18px + env(safe-area-inset-top)) 16px calc(26px + env(safe-area-inset-bottom));max-width:720px;margin-inline:auto}
+    header{display:flex;align-items:center;gap:12px;margin-bottom:18px}.logo{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(145deg,#6379ff,#253b88);font-size:21px;font-weight:800;box-shadow:0 8px 26px #3146a344}.brand{font-size:20px;font-weight:800;letter-spacing:.08em}.sub{font-size:12px;color:var(--muted)}.pill{margin-left:auto;border:1px solid #2c765e;color:var(--green);border-radius:999px;padding:5px 9px;font-size:11px}
+    .card{background:linear-gradient(145deg,#172239ed,#111a2ded);border:1px solid var(--line);border-radius:18px;padding:16px;margin:12px 0;box-shadow:0 12px 34px #00000015}.label{color:var(--muted);font-size:12px}.controls{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}select,button{width:100%;border:1px solid #344360;border-radius:12px;background:#1b2942;color:var(--text);padding:12px;font:inherit;min-height:46px}button{background:linear-gradient(110deg,#6478ff,#5364d8);border:0;font-weight:700;margin-top:12px}button:disabled{opacity:.6}.price{font-size:29px;font-weight:800;letter-spacing:-.04em;margin-top:8px}.change{font-size:13px;margin-top:2px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.metric{background:#0e172a;border:1px solid #24314a;border-radius:13px;padding:13px}.metric strong{display:block;font-size:20px;margin-top:5px}.chart-wrap{height:190px;margin-top:14px}canvas{display:block;width:100%;height:100%}.row{display:flex;align-items:center;justify-content:space-between;gap:12px}.section-title{font-weight:750}.status{color:#c0cbe2;font-size:13px;margin:10px 0 0}.note{font-size:11px;color:var(--muted);line-height:1.5}.footer{text-align:center;color:#71809f;font-size:11px;padding:10px 4px}.error{color:#ffb4bf}.tag{display:inline-block;border-radius:8px;padding:3px 7px;background:#253251;color:#c8d2ff;font-size:11px}
+    @media(min-width:560px){body{padding-top:28px}.grid{grid-template-columns:repeat(4,minmax(0,1fr))}.chart-wrap{height:240px}}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">S</div>
+    <div><div class="brand">SIGNAL AI</div><div class="sub">Учебная рыночная аналитика</div></div>
+    <div class="pill">DEMO</div>
+  </header>
+  <section class="card">
+    <div class="row"><div><div class="label">РЫНОЧНЫЙ ОБЗОР</div><div id="assetName" class="section-title">Bitcoin / USDT</div></div><span class="tag">Публичные данные</span></div>
+    <div class="controls">
+      <label><span class="label">Актив</span><select id="asset"><option value="BTCUSDT">BTC / USDT</option><option value="ETHUSDT">ETH / USDT</option><option value="BNBUSDT">BNB / USDT</option><option value="SOLUSDT">SOL / USDT</option><option value="XRPUSDT">XRP / USDT</option></select></label>
+      <label><span class="label">Интервал свечей</span><select id="interval"><option value="1m">1 минута</option><option value="5m" selected>5 минут</option><option value="15m">15 минут</option><option value="1h">1 час</option><option value="4h">4 часа</option><option value="1d">1 день</option></select></label>
+    </div>
+    <div class="price" id="price">Загрузка…</div><div class="change" id="change">Получаем данные</div>
+    <div class="chart-wrap"><canvas id="chart" aria-label="График цены"></canvas></div>
+    <button id="refresh">Обновить данные</button>
+    <p id="status" class="status">Подключение к публичному источнику…</p>
+  </section>
+  <section class="card">
+    <div class="section-title">Технические показатели</div>
+    <p class="note">Индикаторы рассчитываются по закрытиям свечей и описывают прошлое движение цены.</p>
+    <div class="grid">
+      <div class="metric"><div class="label">RSI (14)</div><strong id="rsi">—</strong><div id="rsiHint" class="sub">Недостаточно данных</div></div>
+      <div class="metric"><div class="label">SMA (20)</div><strong id="sma">—</strong><div class="sub">Средняя цена</div></div>
+      <div class="metric"><div class="label">EMA (12)</div><strong id="ema">—</strong><div class="sub">Экспоненциальная</div></div>
+      <div class="metric"><div class="label">Свечей</div><strong id="count">—</strong><div class="sub">В выборке</div></div>
+    </div>
+  </section>
+  <section class="card">
+    <div class="section-title">Интерпретация показателей</div>
+    <p id="interpretation" class="status">Здесь появится нейтральное описание рассчитанных индикаторов.</p>
+    <p class="note">Это учебный инструмент, а не торговый сигнал. Данные относятся к выбранному публичному рынку и могут отличаться от OTC-котировок Pocket Option. Приложение не открывает сделки.</p>
+  </section>
+  <div class="footer">SIGNAL AI · Учебная версия · Не является финансовой рекомендацией</div>
+<script>
+(() => {
+  const tg = window.Telegram?.WebApp;
+  tg?.ready(); tg?.expand();
+  const $ = id => document.getElementById(id);
+  let loading = false, closes = [];
+  const fmt = n => Number(n).toLocaleString('en-US',{maximumFractionDigits:n<1?6:2});
+  function mean(a){return a.reduce((s,v)=>s+v,0)/a.length}
+  function calcRSI(a){
+    if(a.length<15)return null;let gain=0,loss=0;
+    for(let i=a.length-14;i<a.length;i++){const d=a[i]-a[i-1];if(d>0)gain+=d;else loss-=d}
+    if(loss===0)return 100;return 100-100/(1+gain/loss)
+  }
+  function calcEMA(a,period){
+    if(a.length<period)return null;let e=mean(a.slice(0,period));const k=2/(period+1);
+    for(let i=period;i<a.length;i++)e=a[i]*k+e*(1-k);return e
+  }
+  function draw(a){
+    const c=$('chart'),rect=c.getBoundingClientRect(),w=Math.max(260,rect.width),h=Math.max(150,rect.height),dpr=window.devicePixelRatio||1;
+    c.width=w*dpr;c.height=h*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);x.clearRect(0,0,w,h);
+    if(!a.length)return;const lo=Math.min(...a),hi=Math.max(...a),span=hi-lo||1;
+    x.strokeStyle='#26334d';x.lineWidth=1;
+    for(let i=1;i<4;i++){const y=i*h/4;x.beginPath();x.moveTo(0,y);x.lineTo(w,y);x.stroke()}
+    x.strokeStyle='#8c9cff';x.lineWidth=2;x.beginPath();
+    a.forEach((v,i)=>{const px=i*w/(a.length-1),py=h-8-(v-lo)/span*(h-16);i?x.lineTo(px,py):x.moveTo(px,py)});x.stroke();
+  }
+  async function load(){
+    if(loading)return;loading=true;$('refresh').disabled=true;$('status').textContent='Обновление публичных данных…';$('status').classList.remove('error');
+    try{
+      const symbol=$('asset').value,interval=$('interval').value;
+      $('assetName').textContent=$('asset').selectedOptions[0].text;
+      const u='https://data-api.binance.vision/api/v3/klines?symbol='+encodeURIComponent(symbol)+'&interval='+encodeURIComponent(interval)+'&limit=100';
+      const res=await fetch(u,{cache:'no-store'});if(!res.ok)throw Error('Источник данных вернул HTTP '+res.status);
+      const rows=await res.json();if(!Array.isArray(rows)||rows.length<20)throw Error('Недостаточно свечей для расчёта');
+      closes=rows.map(r=>Number(r[4]));if(closes.some(v=>!Number.isFinite(v)||v<=0))throw Error('Источник вернул некорректные значения');
+      const last=closes.at(-1),prev=closes.at(-2),chg=(last/prev-1)*100,r=calcRSI(closes),s=mean(closes.slice(-20)),e=calcEMA(closes,12);
+      $('price').textContent=fmt(last)+' USDT';$('change').textContent=(chg>=0?'+':'')+chg.toFixed(3)+'% на последней свече';$('change').style.color=chg>=0?'var(--green)':'var(--red)';
+      $('rsi').textContent=r===null?'—':r.toFixed(1);$('rsiHint').textContent=r===null?'Недостаточно данных':r>=70?'Высокий диапазон':r<=30?'Низкий диапазон':'Средний диапазон';
+      $('sma').textContent=fmt(s);$('ema').textContent=fmt(e);$('count').textContent=String(closes.length);
+      const trend=last>s?'цена выше SMA (20)':last<s?'цена ниже SMA (20)':'цена около SMA (20)';
+      const momentum=r>=70?'RSI находится в высоком диапазоне.':r<=30?'RSI находится в низком диапазоне.':'RSI находится в среднем диапазоне.';
+      $('interpretation').textContent='Наблюдение: '+trend+'. '+momentum+' Это описательные показатели, а не прогноз будущей цены.';
+      draw(closes.slice(-60));$('status').textContent='Обновлено '+new Date().toLocaleString()+' · Источник: публичный спотовый рынок';
+    }catch(err){$('status').textContent='Не удалось обновить данные: '+err.message+'. Повтори попытку позже.';$('status').classList.add('error')}
+    finally{loading=false;$('refresh').disabled=false}
+  }
+  $('refresh').addEventListener('click',load);$('asset').addEventListener('change',load);$('interval').addEventListener('change',load);
+  window.addEventListener('resize',()=>draw(closes.slice(-60)));load();
+})();
+</script>
+</body>
+</html>
