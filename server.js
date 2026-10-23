@@ -20,27 +20,19 @@ app.use(cors({
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/", (_req, res) => {
-  res.json({ service: "SIGNAL AI API", status: "ok", mode: "setup" });
+  res.json({ service: "SIGNAL AI API", status: "ok", mode: process.env.TELEGRAM_BOT_TOKEN ? "telegram-enabled" : "setup" });
 });
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-// Upload validation is ready. Actual AI interpretation requires a server-side AI API key.
 app.post("/api/analyze-image", upload.single("image"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Attach an image using the 'image' field." });
   if (!process.env.OPENAI_API_KEY) {
-    return res.status(503).json({
-      error: "AI analysis is not configured yet.",
-      message: "Add OPENAI_API_KEY in Render Environment Variables to enable image analysis."
-    });
+    return res.status(503).json({ error: "AI analysis is not configured yet." });
   }
-
-  return res.status(501).json({
-    error: "AI provider integration is not enabled in this initial backend.",
-    message: "Image upload was validated, but no image was sent to an AI model."
-  });
+  return res.status(501).json({ error: "AI provider integration is not enabled yet." });
 });
 
 app.use((err, _req, res, _next) => {
@@ -52,4 +44,66 @@ app.use((err, _req, res, _next) => {
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`SIGNAL AI API listening on port ${port}`);
+  startTelegramBot();
 });
+
+async function startTelegramBot() {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    console.log("TELEGRAM_BOT_TOKEN is missing; Telegram bot polling is disabled.");
+    return;
+  }
+
+  const api = `https://api.telegram.org/bot${token}`;
+  let offset = 0;
+  const appUrl = "https://vazirbekovvafo93-dot.github.io/-Pamires_bot/";
+
+  async function sendMessage(chatId, text) {
+    const response = await fetch(`${api}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true })
+    });
+    if (!response.ok) console.error("Telegram sendMessage failed:", response.status);
+  }
+
+  async function poll() {
+    try {
+      const response = await fetch(`${api}/getUpdates?timeout=25&offset=${offset}`);
+      if (!response.ok) throw new Error(`Telegram getUpdates returned ${response.status}`);
+      const payload = await response.json();
+      if (!payload.ok) throw new Error("Telegram API did not return ok");
+      for (const update of payload.result || []) {
+        offset = update.update_id + 1;
+        const message = update.message;
+        if (!message?.chat?.id || typeof message.text !== "string") continue;
+        const text = message.text.trim();
+        if (text === "/start" || text.startsWith("/start ")) {
+          await sendMessage(message.chat.id,
+            "Привет! Это SIGNAL AI — учебное приложение для знакомства с графиками и техническими индикаторами.\n\nОткрой приложение кнопкой SIGNAL AI внизу чата или по ссылке:\n" + appUrl + "\n\nДанные могут отличаться от OTC-котировок. Это не финансовая рекомендация.");
+        } else if (text === "/help") {
+          await sendMessage(message.chat.id, "Нажми кнопку SIGNAL AI внизу чата, чтобы открыть приложение. Я могу помочь с общими вопросами о графиках и индикаторах.");
+        } else {
+          await sendMessage(message.chat.id, "Я пока понимаю команды /start и /help. Нажми кнопку SIGNAL AI внизу чата, чтобы открыть приложение.");
+        }
+      }
+    } catch (error) {
+      console.error("Telegram polling error:", error.message);
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+    setTimeout(poll, 100);
+  }
+
+  try {
+    const webhookResponse = await fetch(`${api}/deleteWebhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ drop_pending_updates: false })
+    });
+    if (!webhookResponse.ok) throw new Error("Could not configure Telegram polling");
+    console.log("Telegram bot polling started.");
+    poll();
+  } catch (error) {
+    console.error("Telegram bot setup failed:", error.message);
+  }
+}
