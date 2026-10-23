@@ -41,7 +41,7 @@ app.post("/api/analyze-image", upload.single("image"), async (req, res) => {
       "Не давай торговых сигналов, прогнозов направления, рекомендаций купить/продать, времени входа, ставок или обещаний доходности. Не выдумывай цифры и индикаторы. Если подписи или изображение неразборчивы, прямо сообщи об этом. Это образовательное описание, не финансовая рекомендация."
     ].join("\n");
 
-    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -72,7 +72,7 @@ app.post("/api/analyze-image", upload.single("image"), async (req, res) => {
       .join("\n")
       .trim();
     if (!text) return res.status(502).json({ error: "AI не вернул текст. Попробуй загрузить более чёткое изображение." });
-    return res.json({ analysis: text, model: "gemini-2.5-flash", educational: true });
+    return res.json({ analysis: text, model: "gemini-3.8-flash", educational: true });
   } catch (error) {
     console.error("Image analysis failed:", error.message);
     return res.status(504).json({ error: "Не удалось завершить анализ. Проверь соединение и попробуй ещё раз." });
