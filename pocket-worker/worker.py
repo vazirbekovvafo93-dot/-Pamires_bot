@@ -148,7 +148,7 @@ def candles(
         rows = api.get_historical_candles(
             symbol,
             period=period,
-            offset=period * count,
+            offset=count,
             count_request=1,
         )
         if not rows:
