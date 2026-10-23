@@ -28,11 +28,55 @@ app.get("/health", (_req, res) => {
 });
 
 app.post("/api/analyze-image", upload.single("image"), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "Attach an image using the 'image' field." });
-  if (!process.env.OPENAI_API_KEY) {
-    return res.status(503).json({ error: "AI analysis is not configured yet." });
+  if (!req.file) return res.status(400).json({ error: "Прикрепи изображение в поле image." });
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return res.status(503).json({ error: "Gemini пока не настроен. Добавь GEMINI_API_KEY в Environment на Render." });
   }
-  return res.status(501).json({ error: "AI provider integration is not enabled yet." });
+
+  try {
+    const prompt = [
+      "Ты помощник для финансового обучения. Опиши только то, что действительно видно на изображении графика.",
+      "Ответь на русском простыми словами, короткими разделами: 1) что изображено и какой актив/таймфрейм можно прочитать; 2) видимые свечи и возможная структура графика; 3) индикаторы и их значения, только если они читаемы; 4) ограничения изображения и что невозможно определить.",
+      "Не давай торговых сигналов, прогнозов направления, рекомендаций купить/продать, времени входа, ставок или обещаний доходности. Не выдумывай цифры и индикаторы. Если подписи или изображение неразборчивы, прямо сообщи об этом. Это образовательное описание, не финансовая рекомендация."
+    ].join("\n");
+
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-goog-api-key": apiKey
+      },
+      body: JSON.stringify({
+        contents: [{
+          role: "user",
+          parts: [
+            { text: prompt },
+            { inline_data: { mime_type: req.file.mimetype, data: req.file.buffer.toString("base64") } }
+          ]
+        }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 700 }
+      }),
+      signal: AbortSignal.timeout(45000)
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      console.error("Gemini API error:", response.status, payload?.error?.message || "unknown error");
+      return res.status(502).json({ error: response.status === 429
+        ? "Превышен лимит запросов Gemini. Попробуй позже."
+        : "Gemini не смог обработать изображение. Проверь API-ключ и попробуй снова." });
+    }
+    const text = (payload.candidates?.[0]?.content?.parts || [])
+      .map(part => part.text || "")
+      .join("\n")
+      .trim();
+    if (!text) return res.status(502).json({ error: "AI не вернул текст. Попробуй загрузить более чёткое изображение." });
+    return res.json({ analysis: text, model: "gemini-2.5-flash", educational: true });
+  } catch (error) {
+    console.error("Image analysis failed:", error.message);
+    return res.status(504).json({ error: "Не удалось завершить анализ. Проверь соединение и попробуй ещё раз." });
+  }
 });
 
 app.use((err, _req, res, _next) => {
