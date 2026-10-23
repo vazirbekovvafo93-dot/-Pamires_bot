@@ -1,0 +1,11 @@
+{
+  "name": "SIGNAL AI Market Lab",
+  "short_name": "SIGNAL AI",
+  "description": "Учебная панель рыночных графиков и индикаторов",
+  "lang": "ru",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0b1020",
+  "theme_color": "#0b1020",
+  "orientation": "portrait"
+}
