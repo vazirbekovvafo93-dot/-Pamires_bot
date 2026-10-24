@@ -1,7 +1,7 @@
 """Read-only Pocket Option market-data service for SIGNAL AI.
 
 Required environment:
-  POCKET_OPTION_SSID: full Socket.IO auth payload, kept secret.
+  PO_SSID: full Socket.IO auth payload, kept secret (POCKET_OPTION_SSID is accepted as a legacy fallback).
   MARKET_API_TOKEN: long random token shared with the Node.js API.
 
 This service intentionally does not expose or call order/trading methods.
@@ -52,10 +52,10 @@ def public_asset(symbol: str, info: dict[str, Any]) -> dict[str, Any]:
 @app.on_event("startup")
 def startup() -> None:
     global api, connection_state, connection_error
-    ssid = os.getenv("POCKET_OPTION_SSID", "").strip()
+    ssid = (os.getenv("PO_SSID") or os.getenv("POCKET_OPTION_SSID") or "").strip()
     if not ssid:
         connection_state = "ssid_required"
-        logger.warning("POCKET_OPTION_SSID is not set; worker started in setup mode")
+        logger.warning("PO_SSID is not set; worker started in setup mode")
         return
     if not os.getenv("MARKET_API_TOKEN"):
         connection_state = "token_required"
