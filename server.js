@@ -154,6 +154,7 @@ async function startTelegramBot() {
 
   const api = `https://api.telegram.org/bot${token}`;
   let offset = 0;
+  let pollingStopped = false;
   const appUrl = "https://vazirbekovvafo93-dot.github.io/-Pamires_bot/";
 
   async function sendMessage(chatId, text) {
@@ -166,10 +167,21 @@ async function startTelegramBot() {
   }
 
   async function poll() {
+    if (pollingStopped) return;
     try {
       const response = await fetch(`${api}/getUpdates?timeout=25&offset=${offset}`);
+      if (response.status === 409) {
+        pollingStopped = true;
+        console.error("Telegram polling stopped: getUpdates returned 409; another poller or webhook is active.");
+        return;
+      }
       if (!response.ok) throw new Error(`Telegram getUpdates returned ${response.status}`);
       const payload = await response.json();
+      if (!payload.ok && payload.error_code === 409) {
+        pollingStopped = true;
+        console.error("Telegram polling stopped: API reported 409; another poller or webhook is active.");
+        return;
+      }
       if (!payload.ok) throw new Error("Telegram API did not return ok");
       for (const update of payload.result || []) {
         offset = update.update_id + 1;
@@ -189,7 +201,7 @@ async function startTelegramBot() {
       console.error("Telegram polling error:", error.message);
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
-    setTimeout(poll, 100);
+    if (!pollingStopped) setTimeout(poll, 100);
   }
 
   try {
