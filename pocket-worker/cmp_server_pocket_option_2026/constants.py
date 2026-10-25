@@ -11,11 +11,6 @@ __all__ = (
     "DEFAULT_ORIGIN",
     "DEFAULT_USER_AGENT",
     "PING_INTERVAL",
-    "MIN_ORDER_AMOUNT",
-    "MAX_ORDER_AMOUNT",
-    "MIN_DURATION",
-    "MAX_DURATION",
-    "MAX_CONCURRENT_ORDERS",
     "Region",
     "LIVE_REGIONS",
     "DEMO_REGIONS",
@@ -34,12 +29,6 @@ DEFAULT_USER_AGENT = (
 PING_INTERVAL = 20
 
 # Client-side sanity limits, enforced before a request reaches the server.
-MIN_ORDER_AMOUNT = 1
-MAX_ORDER_AMOUNT = 50_000
-MIN_DURATION = 5
-MAX_DURATION = 43_200
-MAX_CONCURRENT_ORDERS = 10
-
 
 class Region(str, enum.Enum):
     """Known PocketOption WebSocket endpoints (bare host)."""
