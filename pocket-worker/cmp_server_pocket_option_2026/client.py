@@ -1,29 +1,4 @@
-"""
-cmp_server_pocket_option_2026.client
-=======================
-
-The high-level, ergonomic client. It sits on top of :class:`Transport` and turns
-the raw event stream into typed state and simple coroutines.
-
-    async with AsyncPocketOption(ssid) as po:
-        print(await po.get_balance())
-        deal = await po.buy("EURUSD_otc", "call", amount=1, expiration=60)
-        result = await po.result(deal)          # waits for it to close
-        print(result.won, result.profit)
-
-Design
-------
-* One event **router**: every inbound event is validated into a model and
-  dispatched to a handler. No ``if "balance" in message`` string matching.
-* Trades correlate by ``requestId`` using ``asyncio`` futures — a ``buy`` resolves
-  when its own ``successopenOrder`` arrives, and ``result`` resolves on the
-  matching ``successcloseOrder``. No polling, no shared globals.
-* **Safety default:** real-money orders are refused unless ``allow_real=True``.
-  Demo works out of the box.
-
-Only the pieces we have verified against real traffic are implemented (balance,
-assets, buy, result). Streams/candles are added next.
-"""
+"""Read-only Pocket Option market-data client."""
 from __future__ import annotations
 
 import asyncio
