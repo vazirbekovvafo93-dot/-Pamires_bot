@@ -63,18 +63,7 @@ class AsyncPocketOption:
     async def connect(self, *, ready_timeout: float = 8.0) -> Region:
         """Connect, authenticate, and wait for the initial account state."""
         region = await self._t.connect()
-        # balance + assets arrive on their own right after auth; give them a moment
-        try:
-            await asyncio.wait_for(
-                asyncio.gather(self._balance_ready.wait(), self._assets_ready.wait()),
-                ready_timeout,
-            )
-        except asyncio.TimeoutError:
-            logger.warning(
-                "Connected, but initial balance/assets did not all arrive within %ss "
-                "(balance=%s, assets=%d)",
-                ready_timeout, self._balance is not None, len(self._assets),
-            )
+        # Asset catalog readiness is awaited by the adapter before market requests.
         return region
 
     async def close(self) -> None:
@@ -99,18 +88,6 @@ class AsyncPocketOption:
         return self._t.connected
 
     # ------------------------------------------------------------------- state
-
-    async def get_balance(self, *, timeout: float = 5.0) -> Balance:
-        """Return the current balance, waiting for it if not received yet."""
-        if self._balance is None:
-            await asyncio.wait_for(self._balance_ready.wait(), timeout)
-        assert self._balance is not None
-        return self._balance
-
-    @property
-    def balance(self) -> Optional[Balance]:
-        """Last known balance without waiting (may be None early on)."""
-        return self._balance
 
     def assets(self, *, active_only: bool = False) -> List[Asset]:
         """All known assets. Set ``active_only`` to drop closed ones."""
