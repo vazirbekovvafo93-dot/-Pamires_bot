@@ -76,14 +76,13 @@ def get_catalog() -> dict[str, Any]:
 
 
 def public_asset(symbol: str, info: Any) -> dict[str, Any]:
-    meta = info if isinstance(info, dict) else {}
-    name = str(meta.get("name") or symbol)
+    name = str(getattr(info, "name", None) or getattr(info, "symbol", None) or symbol)
     return {
-        "symbol": symbol,
+        "symbol": str(getattr(info, "symbol", None) or symbol),
         "name": name,
-        "is_available": bool(meta.get("is_active", meta.get("active", True))),
+        "is_available": bool(getattr(info, "is_active", True)),
         "timeframes": sorted(ALLOWED_PERIODS),
-        "payout": meta.get("payout", meta.get("profit")),
+        "payout": getattr(info, "payout", None),
     }
 
 
@@ -94,7 +93,7 @@ def assets(otc_only: bool = True) -> dict[str, Any]:
         items = [
             public_asset(symbol, info)
             for symbol, info in catalog.items()
-            if not otc_only or "otc" in str(symbol).lower() or "otc" in str((info or {}).get("name", "") if isinstance(info, dict) else "").lower()
+            if not otc_only or "otc" in str(symbol).lower() or "otc" in str(getattr(info, "name", "")).lower()
         ]
     return {"count": len(items), "assets": items, "source": "pocket-option-unofficial-websocket"}
 
@@ -112,7 +111,7 @@ def candles(
         if symbol not in catalog:
             raise HTTPException(status_code=404, detail="Unknown asset symbol")
         meta = catalog[symbol]
-        if isinstance(meta, dict) and not meta.get("is_active", meta.get("active", True)):
+        if not bool(getattr(meta, "is_active", True)):
             raise HTTPException(status_code=409, detail="Asset is not currently available")
         try:
             rows, resolved = po_feed.candles(symbol, timeframe=_timeframe(period), count=count)
