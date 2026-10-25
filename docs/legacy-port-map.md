@@ -38,6 +38,6 @@ Never log or commit session IDs, cookies, passwords, Telegram bot tokens, worker
 ## Current status
 
 - The target already has a worker and API proxy; do not build a parallel integration without a demonstrated need.
-- The Node data-quality module is standalone and is not yet wired into `/api/market/candles`.
-- The next safe step is to test the target's existing worker response contract, then decide where validation should run.
+- The Node data-quality module is wired into `/api/market/candles`; invalid OHLC/timestamps or stale payloads are rejected before the response is returned.
+- The next step is to verify the new route behavior with automated tests and a configured worker; no live connection has been confirmed.
 - A successful unit-test run proves code-level behavior only; it does not prove the worker can authenticate or reach the external provider.
