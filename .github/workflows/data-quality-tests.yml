@@ -16,6 +16,8 @@ on:
       - "lib/data-quality.js"
       - "test/**"
       - "package.json"
+      - "server.js"
+      - "index.html"
       - ".github/workflows/data-quality-tests.yml"
 
 permissions:
