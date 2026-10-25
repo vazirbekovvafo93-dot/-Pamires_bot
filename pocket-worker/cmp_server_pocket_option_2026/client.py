@@ -197,39 +197,6 @@ class AsyncPocketOption:
 
     # --------------------------------------------------------- positions/history
 
-    def open_deals(self) -> List[Deal]:
-        """Trades currently open on the account (server snapshot)."""
-        return list(self._open_deals.values())
-
-    def history(self, *, limit: Optional[int] = None) -> List[Deal]:
-        """Closed trades, most recent first. ``limit`` caps how many are returned."""
-        deals = sorted(
-            self._closed_deals.values(), key=lambda d: d.close_timestamp, reverse=True
-        )
-        return deals[:limit] if limit else deals
-
-    def stats(self) -> Dict[str, Any]:
-        """Quick performance summary over the closed trades we've seen.
-
-        Useful for Claude to self-monitor (win rate, net P&L) rather than trading
-        blind. Only covers trades observed this session (plus the initial history
-        the server sends on connect).
-        """
-        deals = list(self._closed_deals.values())
-        wins = [d for d in deals if d.profit > 0]
-        losses = [d for d in deals if d.profit < 0]
-        net = sum(d.profit for d in deals)
-        total = len(deals)
-        return {
-            "trades": total,
-            "wins": len(wins),
-            "losses": len(losses),
-            "win_rate": (len(wins) / total) if total else 0.0,
-            "net_profit": round(net, 2),
-        }
-
-    # ------------------------------------------------------------------ routing
-
     async def _dispatch(self, event: str, data: Any) -> None:
         handler = self._handlers.get(event)
         if handler is None:
