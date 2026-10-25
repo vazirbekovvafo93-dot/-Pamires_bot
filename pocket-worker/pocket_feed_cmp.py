@@ -1,4 +1,3 @@
-import hashlib
 import logging
 import os
 import threading
@@ -222,12 +221,3 @@ def get_assets(force=False):
         _diag("PO_DIAG assets=FAILED reason=%s" % str(exc)[:220]); return _assets_cache["items"] or []
 
 
-def _run_worker_proxy_matrix():
-    """Run the proxy matrix from the Gunicorn worker context, read-only."""
-    if os.getenv("PO_PROXY_MATRIX_WORKER", "1") != "1":
-        return
-    try:
-        from po_proxy_matrix import run as run_matrix
-        run_matrix()
-    except Exception as exc:
-        _diag("PO_MATRIX worker_failed=%s" % str(exc)[:220])
