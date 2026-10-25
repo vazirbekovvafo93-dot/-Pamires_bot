@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { normalizeTimestamp, validateCandles, validateSnapshot } = require("../lib/data-quality");
+const { normalizeTimestamp, validateCandles, validateSnapshot, validateMarketResponse } = require("../lib/data-quality");
 
 test("normalizes epoch seconds, milliseconds, and microseconds", () => {
   assert.equal(normalizeTimestamp(1_700_000_000), 1_700_000_000_000);
@@ -123,4 +123,25 @@ test("rejects non-object candle rows", () => {
   const result = validateCandles([null]);
   assert.equal(result.ok, false);
   assert.match(result.errors.join(" "), /expected an object/i);
+});
+
+test("rejects non-object upstream market responses", () => {
+  const result = validateMarketResponse(null);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join(" "), /must be an object/i);
+});
+
+test("rejects upstream responses without a candle array", () => {
+  const result = validateMarketResponse({ symbol: "example" });
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join(" "), /candles must be an array/i);
+});
+
+test("validates candles inside an upstream market response", () => {
+  const result = validateMarketResponse({
+    symbol: "example",
+    candles: [{ open: 10, high: 12, low: 9, close: 11, time: 1_700_000_000_000 }]
+  }, { nowMs: 1_700_000_001_000, maxAgeMs: 60_000 });
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "ok");
 });
