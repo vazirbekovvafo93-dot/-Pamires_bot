@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { normalizeTimestamp, validateCandles } = require("../lib/data-quality");
+const { normalizeTimestamp, validateCandles, validateSnapshot } = require("../lib/data-quality");
 
 test("normalizes epoch seconds, milliseconds, and microseconds", () => {
   assert.equal(normalizeTimestamp(1_700_000_000), 1_700_000_000_000);
@@ -47,19 +47,21 @@ test("reports missing timestamps as a warning", () => {
 });
 
 test("rejects stale data when a freshness threshold is provided", () => {
+  const nowMs = 1_700_000_060_000;
   const result = validateCandles([{
     open: 10, high: 12, low: 9, close: 11,
-    timestamp: Date.now() - 60_000
-  }], { maxAgeMs: 1_000 });
+    timestamp: 1_700_000_000_000
+  }], { maxAgeMs: 1_000, nowMs });
   assert.equal(result.ok, false);
   assert.match(result.errors.join(" "), /stale/i);
 });
 
 test("warns when the latest timestamp is substantially in the future", () => {
+  const nowMs = 1_700_000_000_000;
   const result = validateCandles([{
     open: 10, high: 12, low: 9, close: 11,
-    timestamp: Date.now() + 120_000
-  }]);
+    timestamp: nowMs + 120_000
+  }], { nowMs });
   assert.equal(result.ok, true);
   assert.equal(result.status, "warning");
   assert.match(result.warnings.join(" "), /future/i);
@@ -87,4 +89,23 @@ test("rejects invalid timestamps", () => {
   }]);
   assert.equal(result.ok, false);
   assert.match(result.errors.join(" "), /invalid timestamp/i);
+});
+
+test("validates a snapshot and reports absent optional fields as warnings", () => {
+  const result = validateSnapshot({ price: "1.2345" });
+  assert.equal(result.ok, true);
+  assert.equal(result.errors.length, 0);
+  assert.match(result.warnings.join(" "), /ema20 is missing/);
+});
+
+test("rejects invalid supplied snapshot numbers and booleans", () => {
+  const result = validateSnapshot({ price: true, rsi: "not-a-number" });
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join(" "), /Price is missing or invalid/);
+  assert.match(result.errors.join(" "), /rsi must be a finite number/);
+});
+
+test("rejects non-object snapshots", () => {
+  const result = validateSnapshot([]);
+  assert.equal(result.ok, false);
 });
