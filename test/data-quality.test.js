@@ -1,0 +1,48 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { normalizeTimestamp, validateCandles } = require("../lib/data-quality");
+
+test("normalizes epoch seconds and milliseconds", () => {
+  assert.equal(normalizeTimestamp(1_700_000_000), 1_700_000_000_000);
+  assert.equal(normalizeTimestamp(1_700_000_000_000), 1_700_000_000_000);
+});
+
+test("accepts a valid candle with a recent timestamp", () => {
+  const result = validateCandles([{
+    open: 10, high: 12, low: 9, close: 11,
+    timestamp: Date.now()
+  }]);
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "ok");
+});
+
+test("rejects inconsistent OHLC values", () => {
+  const result = validateCandles([{
+    open: 10, high: 9, low: 8, close: 11,
+    timestamp: Date.now()
+  }]);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join(" "), /inconsistent OHLC/i);
+});
+
+test("reports missing timestamps as a warning", () => {
+  const result = validateCandles([{ open: 10, high: 12, low: 9, close: 11 }]);
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "warning");
+  assert.match(result.warnings.join(" "), /timestamp/i);
+});
+
+test("rejects stale data when a freshness threshold is provided", () => {
+  const result = validateCandles([{
+    open: 10, high: 12, low: 9, close: 11,
+    timestamp: Date.now() - 60_000
+  }], { maxAgeMs: 1_000 });
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join(" "), /stale/i);
+});
+
+test("rejects an empty payload", () => {
+  const result = validateCandles([]);
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "invalid");
+});
