@@ -35,11 +35,9 @@ class AsyncPocketOption:
         # (asset, timeframe) -> future for a pending candle request
         self._pending_history: Dict[tuple, "asyncio.Future[list]"] = {}
 
-        # live prices from updateStream, plus optional tick callbacks
+        # Read-only tick cache; supports short timeframe candle aggregation.
         self._last_price: Dict[str, float] = {}
         self._tick_callbacks: List[Any] = []
-        # per-asset waiters woken by the next tick (event-driven get_price, no polling)
-        self._price_waiters: Dict[str, List["asyncio.Future[float]"]] = {}
 
         # event -> handler
         self._handlers = {
@@ -88,8 +86,6 @@ class AsyncPocketOption:
     def connected(self) -> bool:
         return self._t.connected
 
-    # ------------------------------------------------------------------- state
-
     def assets(self, *, active_only: bool = False) -> List[Asset]:
         """All known assets. Set ``active_only`` to drop closed ones."""
         values = list(self._assets.values())
@@ -133,7 +129,7 @@ class AsyncPocketOption:
         return candles
 
     async def subscribe(self, asset: str) -> None:
-        """Subscribe to the live tick stream for ``asset`` (drives on_tick / price)."""
+        """Subscribe to the live tick stream for an asset."""
         await self._t.emit("subscribeSymbol", asset)
 
     def on_tick(self, callback: Any) -> None:
@@ -144,29 +140,7 @@ class AsyncPocketOption:
         """Last live price seen for ``asset`` (None if not subscribed yet)."""
         return self._last_price.get(asset)
 
-    async def wait_price(self, asset: str, *, timeout: float = 5.0) -> Optional[float]:
-        """Subscribe if needed and return the next live price, event-driven.
-
-        Resolves the instant a tick arrives (a future woken by ``_on_stream``) —
-        no polling loop. Returns the last known price on timeout, or ``None`` if
-        none was ever seen.
-        """
-        cached = self._last_price.get(asset)
-        if cached is not None:
-            return cached
-        loop = asyncio.get_running_loop()
-        fut: "asyncio.Future[float]" = loop.create_future()
-        self._price_waiters.setdefault(asset, []).append(fut)
-        await self.subscribe(asset)
-        try:
-            return await asyncio.wait_for(asyncio.shield(fut), timeout)
-        except asyncio.TimeoutError:
-            waiters = self._price_waiters.get(asset)
-            if waiters and fut in waiters:
-                waiters.remove(fut)
-            return self._last_price.get(asset)
-
-    # --------------------------------------------------------- positions/history
+    # -------------------------------------------------------------- event routing
 
     async def _dispatch(self, event: str, data: Any) -> None:
         handler = self._handlers.get(event)
@@ -221,12 +195,6 @@ class AsyncPocketOption:
                 continue
             if asset is not None:
                 self._last_price[asset] = price
-                # wake anyone awaiting the next price for this asset
-                waiters = self._price_waiters.pop(asset, None)
-                if waiters:
-                    for fut in waiters:
-                        if not fut.done():
-                            fut.set_result(price)
             for cb in self._tick_callbacks:
                 try:
                     res = cb(asset, price, timestamp)
