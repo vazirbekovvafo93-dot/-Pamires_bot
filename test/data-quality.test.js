@@ -109,3 +109,18 @@ test("rejects non-object snapshots", () => {
   const result = validateSnapshot([]);
   assert.equal(result.ok, false);
 });
+
+
+test("rejects duplicate candle timestamps", () => {
+  const timestamp = 1_700_000_000_000;
+  const candle = { open: 10, high: 12, low: 9, close: 11, timestamp };
+  const result = validateCandles([candle, { ...candle }]);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join(" "), /duplicate timestamp/i);
+});
+
+test("rejects non-object candle rows", () => {
+  const result = validateCandles([null]);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join(" "), /expected an object/i);
+});
