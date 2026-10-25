@@ -9,19 +9,9 @@ server field never crashes parsing — we simply keep it.
 """
 from __future__ import annotations
 
-import enum
-from typing import List, Optional
+from typing import List
 
 from pydantic import BaseModel, ConfigDict, Field
-
-
-class Balance(BaseModel):
-    """Account balance snapshot (from ``successupdateBalance``)."""
-
-    model_config = ConfigDict(populate_by_name=True, extra="allow")
-
-    balance: float
-    is_demo: bool = Field(True, alias="isDemo")
 
 
 # Positional indices within an updateAssets row (verified from captured data).
