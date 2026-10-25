@@ -28,22 +28,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import random
 from typing import Any, Dict, List, Optional
 
 from ._transport import Transport
-from .constants import (
-    MAX_ORDER_AMOUNT,
-    MIN_ORDER_AMOUNT,
-    Region,
-)
-from .exceptions import (
-    AssetError,
-    LiveTradingDisabled,
-    OrderError,
-    OrderTimeout,
-)
-from .models import Asset, Balance, Candle, Deal, Direction
+from .constants import Region
+from .exceptions import OrderTimeout
+from .models import Asset, Balance, Candle
 
 logger = logging.getLogger("cmp_server_pocket_option_2026.client")
 
@@ -73,10 +63,6 @@ class AsyncPocketOption:
         self._balance_ready = asyncio.Event()
         self._assets_ready = asyncio.Event()
 
-        # requestId -> future
-        self._pending_open: Dict[int, "asyncio.Future[Deal]"] = {}
-        self._pending_close: Dict[int, "asyncio.Future[Deal]"] = {}
-
         # (asset, timeframe) -> future for a pending candle request
         self._pending_history: Dict[tuple, "asyncio.Future[list]"] = {}
 
@@ -86,21 +72,13 @@ class AsyncPocketOption:
         # per-asset waiters woken by the next tick (event-driven get_price, no polling)
         self._price_waiters: Dict[str, List["asyncio.Future[float]"]] = {}
 
-        # positions & history (both are lists of Deal)
-        self._open_deals: Dict[str, Deal] = {}      # snapshot of currently open
-        self._closed_deals: Dict[str, Deal] = {}    # accumulated history by id
-
         # event -> handler
         self._handlers = {
             "successupdateBalance": self._on_balance,
             "updateAssets": self._on_assets,
-            "successopenOrder": self._on_open_order,
-            "successcloseOrder": self._on_close_order,
             "loadHistoryPeriod": self._on_history,
             "updateHistoryNewFast": self._on_history,
             "updateStream": self._on_stream,
-            "updateOpenedDeals": self._on_opened_deals,
-            "updateClosedDeals": self._on_closed_deals,
         }
 
     # ---------------------------------------------------------------- lifecycle
@@ -172,101 +150,6 @@ class AsyncPocketOption:
     def asset(self, symbol: str) -> Optional[Asset]:
         """Look up a single asset by symbol (e.g. ``"EURUSD_otc"``)."""
         return self._assets.get(symbol)
-
-    # ------------------------------------------------------------------ trading
-
-    async def buy(
-        self,
-        asset: str,
-        direction: "Direction | str | int",
-        amount: float,
-        expiration: int,
-        *,
-        timeout: float = 15.0,
-    ) -> Deal:
-        """Open a trade and return the confirmed (opened) :class:`Deal`.
-
-        ``direction`` accepts 'call'/'up'/0 or 'put'/'down'/1.
-        ``expiration`` is in **seconds** (any value the asset allows).
-
-        Use :meth:`result` on the returned deal to wait for win/loss.
-        """
-        side = Direction.coerce(direction)
-
-        # --- validate before sending -------------------------------------
-        if not self._allow_real and not self.is_demo:
-            raise LiveTradingDisabled(
-                "Refusing a real-money order. Pass allow_real=True to enable "
-                "live trading (demo works without it)."
-            )
-
-        if not (MIN_ORDER_AMOUNT <= amount <= MAX_ORDER_AMOUNT):
-            raise AssetError(
-                f"amount {amount} out of range [{MIN_ORDER_AMOUNT}, {MAX_ORDER_AMOUNT}]"
-            )
-
-        info = self._assets.get(asset)
-        if info is not None:
-            if not info.is_active:
-                raise AssetError(f"asset {asset!r} is currently closed")
-            if info.expirations and expiration not in info.expirations:
-                raise AssetError(
-                    f"expiration {expiration}s is not available for {asset} — "
-                    f"allowed: {info.expirations}"
-                )
-        else:
-            logger.warning("Asset %r not in the asset list; sending without validation", asset)
-
-        # --- send + await confirmation -----------------------------------
-        request_id = random.randint(1, _MAX_REQUEST_ID)
-        loop = asyncio.get_running_loop()
-        open_fut: "asyncio.Future[Deal]" = loop.create_future()
-        close_fut: "asyncio.Future[Deal]" = loop.create_future()
-        self._pending_open[request_id] = open_fut
-        self._pending_close[request_id] = close_fut
-
-        payload = {
-            "asset": asset,
-            "amount": amount,
-            "action": side.value,        # "call" / "put"
-            "isDemo": 1 if self.is_demo else 0,
-            "requestId": request_id,
-            "optionType": 100,
-            "time": expiration,
-        }
-        logger.info("buy %s %s amount=%s exp=%ss (req=%s)", asset, side.value, amount, expiration, request_id)
-        await self._t.emit("openOrder", payload)
-
-        try:
-            return await asyncio.wait_for(open_fut, timeout)
-        except asyncio.TimeoutError:
-            self._pending_open.pop(request_id, None)
-            self._pending_close.pop(request_id, None)
-            raise OrderTimeout(
-                f"No 'successopenOrder' for {asset} within {timeout}s (req={request_id})"
-            ) from None
-
-    async def result(self, deal: Deal, *, timeout: Optional[float] = None) -> Deal:
-        """Wait for ``deal`` to close and return the closed :class:`Deal`.
-
-        Blocks until the trade expires. ``timeout`` defaults to the deal's own
-        duration plus a small margin.
-        """
-        fut = self._pending_close.get(deal.request_id)
-        if fut is None:
-            raise OrderError(
-                f"No pending result for req={deal.request_id}; was it opened by this client?"
-            )
-        if timeout is None:
-            duration = max(0, deal.close_timestamp - deal.open_timestamp)
-            timeout = duration + 15.0
-        try:
-            return await asyncio.wait_for(asyncio.shield(fut), timeout)
-        except asyncio.TimeoutError:
-            self._pending_close.pop(deal.request_id, None)
-            raise OrderTimeout(
-                f"No 'successcloseOrder' for req={deal.request_id} within {timeout}s"
-            ) from None
 
     # -------------------------------------------------------------- market data
 
@@ -400,24 +283,6 @@ class AsyncPocketOption:
             self._assets = parsed
             self._assets_ready.set()
 
-    async def _on_open_order(self, data: Any) -> None:
-        deal = Deal.model_validate(data)
-        fut = self._pending_open.pop(deal.request_id, None)
-        if fut is not None and not fut.done():
-            fut.set_result(deal)
-        else:
-            logger.debug("successopenOrder for unknown req=%s (external trade?)", deal.request_id)
-
-    async def _on_close_order(self, data: Any) -> None:
-        deals = data.get("deals", []) if isinstance(data, dict) else []
-        for raw in deals:
-            deal = Deal.model_validate(raw)
-            fut = self._pending_close.pop(deal.request_id, None)
-            if fut is not None and not fut.done():
-                fut.set_result(deal)
-            else:
-                logger.debug("successcloseOrder for unknown req=%s", deal.request_id)
-
     async def _on_history(self, data: Any) -> None:
         if not isinstance(data, dict):
             return
@@ -461,26 +326,3 @@ class AsyncPocketOption:
                 except Exception:
                     logger.exception("on_tick callback error")
 
-    async def _on_opened_deals(self, data: Any) -> None:
-        # Snapshot of currently open trades — replace our view.
-        if not isinstance(data, list):
-            return
-        self._open_deals = {}
-        for raw in data:
-            try:
-                deal = Deal.model_validate(raw)
-                self._open_deals[deal.id] = deal
-            except Exception:
-                logger.debug("could not parse opened deal: %r", raw, exc_info=True)
-
-    async def _on_closed_deals(self, data: Any) -> None:
-        # History — accumulate (may arrive as a full list or just new closures).
-        if not isinstance(data, list):
-            return
-        for raw in data:
-            try:
-                deal = Deal.model_validate(raw)
-                self._closed_deals[deal.id] = deal
-                self._open_deals.pop(deal.id, None)  # it's closed now
-            except Exception:
-                logger.debug("could not parse closed deal: %r", raw, exc_info=True)
