@@ -1,22 +1,33 @@
-# Data sources and integration plan
+# Data sources and validation
 
-## Current prototype
-The Mini App reads public Binance spot candles for selected crypto assets. It computes RSI, SMA and EMA in the browser. It does not connect to Pocket Option, does not contain payout data, and does not produce trading instructions.
+## What the repository currently implements
 
-## Why OTC requires a separate source
-Pocket Option OTC prices and payout percentages may be platform-specific and may not match public FX/crypto prices. Do not label third-party prices as Pocket Option data. A data integration should only be implemented after verifying a documented, authorized interface and its permitted use.
+The frontend requests market assets and candles from the configured Node API. The Node API's /api/market/assets and /api/market/candles routes proxy to a separately configured worker. The repository also includes a worker implementation that uses an unofficial provider library. Source inspection does not establish that the worker is deployed, credentials are configured, the provider permits this use, or any returned data is live.
 
-## Integration requirements
-A future data adapter should expose normalized, timestamped records such as:
-- assets: stable asset ID, display name, market type, availability timestamp
-- candles: open time, open, high, low, close, volume (if available), source
-- payouts: asset ID, percentage, observed timestamp, source (only if reliably provided)
-- intervals: supported interval identifiers (only if confirmed by source)
+Do not present data as coming from a specific provider unless the source is verified at runtime. Do not label public-market candles as platform-specific OTC prices.
+
+## Validation contract
+
+The Node API validates the candle response before returning it. Checks include response shape, OHLC values, timestamp normalization, ordering, duplicate timestamps, stale/future timestamps, and empty or malformed payloads. Invalid payloads are rejected with an HTTP 502 response and a concise quality summary.
+
+The freshness window is a defensive threshold (three requested periods), not a guarantee of live data. data_checked_at indicates when the API performed its validation; it is not the timestamp at which the provider generated the candle.
+
+## Future adapters
+
+Any replacement data adapter should use a documented, authorized source and return normalized records with:
+
+- stable asset identifier and display name;
+- market type and source name;
+- candle open time, OHLC values, and volume if available;
+- explicit source timestamp and supported interval identifiers.
+
+Only include additional fields such as payouts if the source reliably documents them and their use is permitted. Do not infer missing fields or silently substitute another market's data.
 
 ## Reliability and security
-- Show source and last-updated time in the UI.
-- Mark data stale when it has not updated; never silently reuse old values as current.
-- Validate server responses and rate limits.
-- Never commit bot tokens, session IDs, cookies, passwords or API secrets.
-- Do not place private credentials in frontend code. If an authorized provider requires a secret, keep it server-side.
-- Do not assume a session ID is a documented API or a permanent connection method.
+
+- Show source and last-updated time in the UI when known.
+- Mark stale data as stale; do not silently reuse it as current.
+- Validate upstream responses and handle timeouts/rate limits.
+- Keep credentials server-side and out of logs, commits, and frontend code.
+- Do not use browser-based session capture or assume a session ID is a documented, stable API.
+- Test validation with synthetic fixtures; tests should not require live provider access.
