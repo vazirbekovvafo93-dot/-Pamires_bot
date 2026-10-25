@@ -110,18 +110,6 @@ def _connect_once(auth,use_proxy=False):
     _diag("PO_DIAG websocket=OK connected=yes authenticated=yes transport=%s" % transport); setattr(client, "_pms_transport", "PROXY" if use_proxy else "DIRECT"); return client
 
 
-def _connect_auto_browser():
-    from pocket_auto_auth import get_fresh_ssid
-    _diag("PO_DIAG auth_source=AUTO_BROWSER_FALLBACK"); auth=get_fresh_ssid()
-    if not auth: raise RuntimeError("Pocket Option automatic authentication returned no session")
-    transports=[True] if _proxy_configured_safe() else [False]
-    last=None
-    for use_proxy in transports:
-        try: return _connect_once(auth,use_proxy=use_proxy)
-        except Exception as exc: last=exc; _diag("PO_DIAG auto_auth=TRANSPORT_FAILED transport=%s reason=%s" % ("SOCKS5" if use_proxy else "DIRECT",str(exc)[:220]))
-    raise RuntimeError(str(last) if last else "Pocket Option automatic authentication failed")
-
-
 def _disconnect_stale_client(reason):
     global _client,_client_transport
     if _client is not None:
@@ -152,7 +140,7 @@ def _connect():
             _disconnect_stale_client("proxy_required_but_existing_client_not_proxy")
         if _last_auth_error and time.time()-_last_auth_error_at<_AUTH_RETRY_COOLDOWN: raise RuntimeError(_last_auth_error)
         if not configured():
-            error="PO_LOGIN_EMAIL/PO_LOGIN_PASSWORD or PO_SSID are missing"; _last_auth_error,_last_auth_error_at=error,time.time(); raise RuntimeError(error)
+            error="PO_SSID is missing"; _last_auth_error,_last_auth_error_at=error,time.time(); raise RuntimeError(error)
         mode=_auth_mode(); _diag("PO_DIAG auth=START mode=%s" % mode)
         try:
             auth=_fresh_auth()
