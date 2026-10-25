@@ -10,10 +10,6 @@ __all__ = (
     "ConnectionFailedError",
     "AuthenticationError",
     "NotAuthorizedError",
-    "AssetError",
-    "OrderError",
-    "OrderTimeout",
-    "LiveTradingDisabled",
 )
 
 
@@ -33,17 +29,3 @@ class NotAuthorizedError(AuthenticationError):
     """The server explicitly rejected the session (`NotAuthorized`)."""
 
 
-class AssetError(PocketOptionError):
-    """The asset is unknown, closed, or the trade parameters are invalid."""
-
-
-class OrderError(PocketOptionError):
-    """An order could not be placed or was rejected by the server."""
-
-
-class OrderTimeout(OrderError):
-    """No response was received for an order within the timeout."""
-
-
-class LiveTradingDisabled(PocketOptionError):
-    """A real-money order was attempted while allow_real=False (the default)."""
