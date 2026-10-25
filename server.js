@@ -13,8 +13,12 @@ const upload = multer({
   }
 });
 
+const allowedOrigins = process.env.ALLOWED_ORIGIN
+  ? process.env.ALLOWED_ORIGIN.split(",").map(v => v.trim()).filter(Boolean)
+  : "*";
+
 app.use(cors({
-  origin: (process.env.ALLOWED_ORIGIN || "*").split(",").map(v => v.trim()),
+  origin: allowedOrigins,
   methods: ["GET", "POST"]
 }));
 app.use(express.json({ limit: "1mb" }));
