@@ -51,6 +51,12 @@ def shutdown() -> None:
         logger.exception("Error closing Pocket Option WebSocket")
 
 
+@app.get("/")
+def root() -> dict[str, str]:
+    """Lightweight root route for service probes; does not initiate Pocket Option auth."""
+    return {"service": "signal-ai-pocket-worker", "status": "ok"}
+
+
 @app.get("/health")
 def health() -> dict[str, Any]:
     # Do not attempt an expensive authentication on every health probe.
