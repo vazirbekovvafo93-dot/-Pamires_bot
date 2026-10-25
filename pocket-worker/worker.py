@@ -13,7 +13,6 @@ import threading
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
-from pocketoptionapi import PocketOption
 import pocket_feed_cmp as po_feed
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -34,7 +33,7 @@ def require_token(authorization: str | None = Header(default=None)) -> None:
 
 @app.on_event("startup")
 def startup() -> None:
-    if not (os.getenv("PO_SSID") or os.getenv("POCKET_OPTION_SSID") or "").strip():
+    if not po_feed.configured():
         logger.warning("Pocket Option SSID is not set; worker started in setup mode")
         return
     if not os.getenv("MARKET_API_TOKEN"):
