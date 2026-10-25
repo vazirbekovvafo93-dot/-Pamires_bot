@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
+const { validateCandles } = require("./lib/data-quality");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -79,7 +80,24 @@ app.get("/api/market/candles", async (req, res) => {
   try {
     const query = `?symbol=${encodeURIComponent(symbol)}&period=${period}&count=${count}`;
     const result = await proxyMarketRequest("/api/candles", query);
-    res.json(result);
+    const quality = validateCandles(result?.candles, {
+      maxAgeMs: period * 3000,
+      // A three-period window tolerates normal publication delay while
+      // refusing to label substantially old candles as current.
+      nowMs: Date.now()
+    });
+    if (!quality.ok) {
+      console.warn("Market candle validation failed:", quality.errors.join("; "));
+      return res.status(502).json({
+        error: "Market data failed quality checks.",
+        data_quality: { status: quality.status, errors: quality.errors, warnings: quality.warnings }
+      });
+    }
+    res.json({
+      ...result,
+      data_quality: { status: quality.status, warnings: quality.warnings },
+      data_checked_at: new Date().toISOString()
+    });
   } catch (error) {
     res.status(error.status || 502).json({ error: error.message || "Market data service unavailable." });
   }
