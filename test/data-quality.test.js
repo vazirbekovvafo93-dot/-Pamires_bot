@@ -46,3 +46,21 @@ test("rejects an empty payload", () => {
   assert.equal(result.ok, false);
   assert.equal(result.status, "invalid");
 });
+
+test("rejects timestamps that are out of order", () => {
+  const now = Date.now();
+  const result = validateCandles([
+    { open: 10, high: 12, low: 9, close: 11, timestamp: now },
+    { open: 11, high: 13, low: 10, close: 12, timestamp: now - 1000 }
+  ]);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join(" "), /ascending order/i);
+});
+
+test("rejects invalid timestamps", () => {
+  const result = validateCandles([{
+    open: 10, high: 12, low: 9, close: 11, timestamp: "not-a-time"
+  }]);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join(" "), /invalid timestamp/i);
+});
