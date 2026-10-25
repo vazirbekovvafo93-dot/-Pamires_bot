@@ -11,8 +11,6 @@ from .models import Asset, Candle
 
 logger = logging.getLogger("cmp_server_pocket_option_2026.client")
 
-_MAX_REQUEST_ID = 2_147_483_647  # int32 ceiling the server expects
-
 
 class AsyncPocketOption:
     """High-level PocketOption client."""
@@ -66,16 +64,9 @@ class AsyncPocketOption:
         return region
 
     async def close(self) -> None:
-        pending: List["asyncio.Future"] = []
-        pending += list(self._pending_open.values())
-        pending += list(self._pending_close.values())
-        pending += list(self._pending_history.values())
-        for waiters in self._price_waiters.values():
-            pending += waiters
-        for fut in pending:
+        for fut in self._pending_history.values():
             if not fut.done():
                 fut.cancel()
-        self._price_waiters.clear()
         await self._t.disconnect()
 
     @property
