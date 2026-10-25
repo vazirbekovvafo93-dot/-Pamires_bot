@@ -1,6 +1,6 @@
 # Data quality helper
 
-This module validates read-only market-data payloads. It does not calculate forecasts or recommend actions.
+This module validates read-only market-data payloads and the shape of upstream API responses. It does not calculate forecasts or recommend actions.
 
 ## Candle validation
 
@@ -46,3 +46,7 @@ npm test
 ```
 
 Tests cover timestamp normalization, OHLC consistency, missing timestamps, stale/future data, empty payloads, ordering, duplicate timestamps, malformed candle rows, and snapshot validation.
+
+## Upstream response contract
+
+`validateMarketResponse(payload, options)` checks that the response is an object with a `candles` array, then applies candle validation. The Node route `GET /api/market/candles` uses this helper before forwarding worker data. Invalid responses return HTTP 502 with a short quality summary; valid responses include the validation status and check timestamp.
