@@ -35,7 +35,7 @@ A snapshot must be an object and include a finite numeric `price`. Known optiona
 - `warning`: no hard validation errors, but one or more caveats prevent full verification.
 - `invalid`: at least one validation error was detected.
 
-The helper is intentionally standalone and is not wired into application routes. Callers must decide where validation belongs and select freshness thresholds appropriate to the documented data source and sampling interval.
+The helper is used by `GET /api/market/candles` to validate the worker payload before returning it. Invalid candles produce HTTP 502 with a `data_quality` error summary. Valid responses include `data_quality.status`, warnings, and `data_checked_at`. The route uses a freshness window of three requested periods; this is a defensive threshold, not a guarantee that the upstream source is live.
 
 ## Tests
 
@@ -45,4 +45,4 @@ Run the unit tests with Node.js 20 or newer:
 npm test
 ```
 
-Tests cover timestamp normalization, OHLC consistency, missing timestamps, stale/future data, empty payloads, ordering, and snapshot validation.
+Tests cover timestamp normalization, OHLC consistency, missing timestamps, stale/future data, empty payloads, ordering, duplicate timestamps, malformed candle rows, and snapshot validation.
