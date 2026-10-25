@@ -28,6 +28,9 @@ class AsyncPocketOption:
 
         # state
         self._assets: Dict[str, Asset] = {}
+        self._assets_ready = asyncio.Event()
+        self._tick_callbacks: List[Any] = []
+        self._last_price: Dict[str, float] = {}
 
         # (asset, timeframe) -> future for a pending candle request
         self._pending_history: Dict[tuple, "asyncio.Future[list]"] = {}
@@ -52,7 +55,10 @@ class AsyncPocketOption:
     async def connect(self, *, ready_timeout: float = 8.0) -> Region:
         """Connect, authenticate, and wait for the initial account state."""
         region = await self._t.connect()
-        # balance + assets arrive on their own right after auth; give them a moment
+        try:
+            await asyncio.wait_for(self._assets_ready.wait(), ready_timeout)
+        except asyncio.TimeoutError:
+            logger.warning("Pocket Option connected but asset catalog did not arrive before timeout")
         return region
 
     async def close(self) -> None:
@@ -102,9 +108,7 @@ class AsyncPocketOption:
             rows = await asyncio.wait_for(fut, timeout)
         except asyncio.TimeoutError:
             self._pending_history.pop(key, None)
-            raise OrderTimeout(
-                f"No candle history for {asset}@{timeframe}s within {timeout}s"
-            ) from None
+            raise TimeoutError(f"No candle history for {asset}@{timeframe}s within {timeout}s") from None
 
         candles = sorted((Candle.from_row(r) for r in rows), key=lambda c: c.time)
         if count is not None:
@@ -133,7 +137,41 @@ class AsyncPocketOption:
                 logger.debug("Could not parse asset row: %r", row, exc_info=True)
         if parsed:
             self._assets = parsed
-    
+            self._assets_ready.set()
+
+    async def subscribe(self, asset: str) -> None:
+        await self._t.emit("subscribeSymbol", asset)
+
+    def on_tick(self, callback: Any) -> None:
+        self._tick_callbacks.append(callback)
+
+    def price(self, asset: str) -> Optional[float]:
+        return self._last_price.get(asset)
+
+    async def _on_stream(self, data: Any) -> None:
+        ticks = data if isinstance(data, list) else [data]
+        for tick in ticks:
+            if not isinstance(tick, list):
+                continue
+            asset = None
+            timestamp = None
+            price = None
+            if len(tick) >= 3 and isinstance(tick[0], str):
+                asset, timestamp, price = tick[0], tick[1], tick[2]
+            elif len(tick) >= 2:
+                timestamp, price = tick[0], tick[1]
+            if price is None:
+                continue
+            if asset is not None:
+                self._last_price[str(asset)] = float(price)
+            for callback in self._tick_callbacks:
+                try:
+                    result = callback(asset, price, timestamp)
+                    if asyncio.iscoroutine(result):
+                        await result
+                except Exception:
+                    logger.exception("Pocket Option tick callback failed")
+
     async def _on_history(self, data: Any) -> None:
         if not isinstance(data, dict):
             return
