@@ -22,7 +22,7 @@ def _diag(message):
 
 
 def _manual_ssid():
-    return (os.getenv("PO_SSID") or "").strip()
+    return (os.getenv("PO_SSID") or os.getenv("POCKET_OPTION_SSID") or "").strip()
 
 
 def _auth_mode():
