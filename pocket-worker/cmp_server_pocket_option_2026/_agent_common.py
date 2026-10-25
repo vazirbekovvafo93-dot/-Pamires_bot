@@ -15,8 +15,6 @@ import os
 import re
 import sys
 
-from agents import Agent, Runner
-from agents.mcp import MCPServerStdio
 
 # The operating manual lives in agents/ (with a legacy fallback to the project root)
 # and is the single source of truth for the agent's rules — used as the system prompt.
