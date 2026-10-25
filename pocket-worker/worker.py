@@ -14,6 +14,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 import pocket_feed_cmp as po_feed
+import short_tf_feed
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("signal-pocket-worker")
@@ -144,6 +145,48 @@ def candles(
         "count": len(normalized),
         "candles": normalized,
         "source": "pocket-option-unofficial-websocket",
+    }
+
+
+@app.get("/api/short-timeframe", dependencies=[Depends(require_token)])
+def short_timeframe(
+    symbol: str = Query(min_length=2, max_length=80),
+    period: int = Query(default=5),
+    wait_seconds: int = Query(default=8, ge=1, le=30),
+) -> dict[str, Any]:
+    """Build read-only short candles from Pocket Option live ticks."""
+    if period not in {5, 10, 15, 30}:
+        raise HTTPException(status_code=400, detail="Short period must be 5, 10, 15 or 30 seconds")
+    with data_lock:
+        catalog = get_catalog()
+        if symbol not in catalog:
+            raise HTTPException(status_code=404, detail="Unknown asset symbol")
+        meta = catalog[symbol]
+        if not bool(meta.get("is_active", True) if isinstance(meta, dict) else getattr(meta, "is_active", True)):
+            raise HTTPException(status_code=409, detail="Asset is not currently available")
+    try:
+        resolved, ticks = short_tf_feed.collect_ticks(symbol, wait_seconds=wait_seconds)
+        bars = short_tf_feed.bucket(ticks, seconds=period)
+    except Exception as exc:
+        logger.warning("Pocket Option short-timeframe feed unavailable (details omitted)")
+        raise HTTPException(status_code=502, detail="Pocket Option live tick feed is unavailable for this symbol") from exc
+    candles = [{
+        "time": int(row["time"]),
+        "open": float(row["open"]),
+        "high": float(row["high"]),
+        "low": float(row["low"]),
+        "close": float(row["close"]),
+        "ticks": int(row["ticks"]),
+    } for row in bars]
+    if not candles:
+        raise HTTPException(status_code=502, detail="Pocket Option returned no live ticks for this symbol")
+    return {
+        "symbol": resolved,
+        "period": period,
+        "count": len(candles),
+        "candles": candles,
+        "source": "pocket-option-update-stream-ticks",
+        "trading": False,
     }
 
 
