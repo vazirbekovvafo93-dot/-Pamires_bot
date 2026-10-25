@@ -6,6 +6,8 @@ test("normalizes epoch seconds, milliseconds, and microseconds", () => {
   assert.equal(normalizeTimestamp(1_700_000_000), 1_700_000_000_000);
   assert.equal(normalizeTimestamp(1_700_000_000_000), 1_700_000_000_000);
   assert.equal(normalizeTimestamp(1_700_000_000_000_000), 1_700_000_000_000);
+  assert.equal(normalizeTimestamp(""), null);
+  assert.equal(normalizeTimestamp(null), null);
 });
 
 test("accepts a valid candle with a recent timestamp", () => {
@@ -24,6 +26,17 @@ test("rejects inconsistent OHLC values", () => {
   }]);
   assert.equal(result.ok, false);
   assert.match(result.errors.join(" "), /inconsistent OHLC/i);
+});
+
+test("rejects null or empty OHLC values instead of coercing them to zero", () => {
+  for (const missingValue of [null, ""]) {
+    const result = validateCandles([{
+      open: 10, high: 12, low: 9, close: missingValue,
+      timestamp: Date.now()
+    }]);
+    assert.equal(result.ok, false);
+    assert.match(result.errors.join(" "), /finite numbers/i);
+  }
 });
 
 test("reports missing timestamps as a warning", () => {
