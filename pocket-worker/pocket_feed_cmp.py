@@ -3,6 +3,7 @@ import os
 import threading
 import time
 import json
+import hashlib
 from urllib.parse import unquote
 
 _log = logging.getLogger("pocket_feed")
