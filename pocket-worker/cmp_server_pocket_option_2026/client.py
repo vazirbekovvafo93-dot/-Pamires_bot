@@ -31,7 +31,6 @@ class AsyncPocketOption:
         # state
         self._assets: Dict[str, Asset] = {}
 
-        # readiness events (server pushes these shortly after auth)
         self._assets_ready = asyncio.Event()
 
         # (asset, timeframe) -> future for a pending candle request
@@ -63,7 +62,10 @@ class AsyncPocketOption:
     async def connect(self, *, ready_timeout: float = 8.0) -> Region:
         """Connect, authenticate, and wait for the initial account state."""
         region = await self._t.connect()
-        # Asset catalog readiness is awaited by the adapter before market requests.
+        try:
+            await asyncio.wait_for(self._assets_ready.wait(), ready_timeout)
+        except asyncio.TimeoutError:
+            logger.warning("Pocket Option connected but asset catalog did not arrive before timeout")
         return region
 
     async def close(self) -> None:
@@ -124,9 +126,7 @@ class AsyncPocketOption:
             rows = await asyncio.wait_for(fut, timeout)
         except asyncio.TimeoutError:
             self._pending_history.pop(key, None)
-            raise OrderTimeout(
-                f"No candle history for {asset}@{timeframe}s within {timeout}s"
-            ) from None
+            raise TimeoutError(f"No candle history for {asset}@{timeframe}s within {timeout}s") from None
 
         candles = sorted((Candle.from_row(r) for r in rows), key=lambda c: c.time)
         if count is not None:
