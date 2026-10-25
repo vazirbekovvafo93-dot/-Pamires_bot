@@ -27,6 +27,60 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
+const MARKET_PERIODS = new Set([5, 15, 60, 300, 900, 3600]);
+
+async function proxyMarketRequest(path, query = "") {
+  const base = (process.env.POCKET_WORKER_URL || "").replace(/\/$/, "");
+  const token = process.env.MARKET_API_TOKEN || "";
+  if (!base || !token) {
+    const error = new Error("Pocket Option market worker is not configured.");
+    error.status = 503;
+    throw error;
+  }
+  const response = await fetch(`${base}${path}${query}`, {
+    headers: { authorization: `Bearer ${token}`, accept: "application/json" },
+    signal: AbortSignal.timeout(12000)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload.detail || "Market data service unavailable.");
+    error.status = response.status;
+    throw error;
+  }
+  return payload;
+}
+
+app.get("/api/market/assets", async (_req, res) => {
+  try {
+    const result = await proxyMarketRequest("/api/assets", "?otc_only=true");
+    res.json(result);
+  } catch (error) {
+    res.status(error.status || 502).json({ error: error.message || "Market data service unavailable." });
+  }
+});
+
+app.get("/api/market/candles", async (req, res) => {
+  const symbol = typeof req.query.symbol === "string" ? req.query.symbol : "";
+  const period = Number(req.query.period || 60);
+  const count = Number(req.query.count || 100);
+  if (!/^[A-Za-z0-9_.-]{2,80}$/.test(symbol)) {
+    return res.status(400).json({ error: "Invalid market symbol." });
+  }
+  if (!MARKET_PERIODS.has(period)) {
+    return res.status(400).json({ error: "Unsupported period. Use 5, 15, 60, 300, 900 or 3600 seconds." });
+  }
+  if (!Number.isInteger(count) || count < 1 || count > 500) {
+    return res.status(400).json({ error: "count must be an integer from 1 to 500." });
+  }
+  try {
+    const query = `?symbol=${encodeURIComponent(symbol)}&period=${period}&count=${count}`;
+    const result = await proxyMarketRequest("/api/candles", query);
+    res.json(result);
+  } catch (error) {
+    res.status(error.status || 502).json({ error: error.message || "Market data service unavailable." });
+  }
+});
+
 app.post("/api/analyze-image", upload.single("image"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Прикрепи изображение в поле image." });
   const apiKey = process.env.GEMINI_API_KEY;
