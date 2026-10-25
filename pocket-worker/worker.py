@@ -14,6 +14,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 import pocket_feed_cmp as po_feed
+from pocket_option_cmp import CmpPocketOption
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("signal-pocket-worker")
@@ -76,13 +77,13 @@ def get_catalog() -> dict[str, Any]:
 
 
 def public_asset(symbol: str, info: Any) -> dict[str, Any]:
-    name = str(getattr(info, "name", None) or getattr(info, "symbol", None) or symbol)
+    name = str(info.get("name") if isinstance(info, dict) and info.get("name") else getattr(info, "name", None) or getattr(info, "symbol", None) or symbol)
     return {
-        "symbol": str(getattr(info, "symbol", None) or symbol),
+        "symbol": str(info.get("symbol") if isinstance(info, dict) and info.get("symbol") else getattr(info, "symbol", None) or symbol),
         "name": name,
-        "is_available": bool(getattr(info, "is_active", True)),
+        "is_available": bool(info.get("is_active", True) if isinstance(info, dict) else getattr(info, "is_active", True)),
         "timeframes": sorted(ALLOWED_PERIODS),
-        "payout": getattr(info, "payout", None),
+        "payout": info.get("payout") if isinstance(info, dict) else getattr(info, "payout", None),
     }
 
 
@@ -111,7 +112,7 @@ def candles(
         if symbol not in catalog:
             raise HTTPException(status_code=404, detail="Unknown asset symbol")
         meta = catalog[symbol]
-        if not bool(getattr(meta, "is_active", True)):
+        if not bool(meta.get("is_active", True) if isinstance(meta, dict) else getattr(meta, "is_active", True)):
             raise HTTPException(status_code=409, detail="Asset is not currently available")
         try:
             rows, resolved = po_feed.candles(symbol, timeframe=_timeframe(period), count=count)
