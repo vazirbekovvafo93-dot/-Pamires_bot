@@ -1,0 +1,33 @@
+name: Data quality tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/data-quality.js"
+      - "test/**"
+      - "package.json"
+      - ".github/workflows/data-quality-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "lib/data-quality.js"
+      - "test/**"
+      - "package.json"
+      - ".github/workflows/data-quality-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run unit tests
+        run: npm test
