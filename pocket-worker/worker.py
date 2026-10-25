@@ -14,7 +14,6 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 import pocket_feed_cmp as po_feed
-from pocket_option_cmp import CmpPocketOption
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("signal-pocket-worker")
@@ -124,8 +123,11 @@ def candles(
     for row in rows[-count:]:
         try:
             get = (lambda key, default=None: row.get(key, default)) if isinstance(row, dict) else (lambda key, default=None: getattr(row, key, default))
+            timestamp = get("time", get("timestamp"))
+            if timestamp is None:
+                timestamp = get("created_at")
             normalized.append({
-                "time": int(get("time", get("timestamp"))),
+                "time": int(timestamp),
                 "open": float(get("open")),
                 "high": float(get("high")),
                 "low": float(get("low")),
