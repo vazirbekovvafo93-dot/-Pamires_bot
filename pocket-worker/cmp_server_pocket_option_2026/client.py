@@ -22,7 +22,6 @@ class AsyncPocketOption:
         ssid: str,
         *,
         demo: Optional[bool] = None,
-        allow_real: bool = False,
         **transport_kwargs: Any,
     ) -> None:
         self._t = Transport(ssid, demo=demo, **transport_kwargs)
