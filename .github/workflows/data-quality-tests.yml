@@ -7,6 +7,7 @@ on:
       - "lib/data-quality.js"
       - "test/**"
       - "package.json"
+      - "server.js"
       - ".github/workflows/data-quality-tests.yml"
   push:
     branches: [main]
@@ -29,5 +30,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Check server syntax
+        run: node --check server.js
       - name: Run unit tests
         run: npm test
