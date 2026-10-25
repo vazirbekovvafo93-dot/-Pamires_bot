@@ -8,6 +8,7 @@ on:
       - "test/**"
       - "package.json"
       - "server.js"
+      - "index.html"
       - ".github/workflows/data-quality-tests.yml"
   push:
     branches: [main]
@@ -32,5 +33,7 @@ jobs:
           node-version: 20
       - name: Check server syntax
         run: node --check server.js
+      - name: Check inline frontend JavaScript
+        run: node -e 'const fs=require("fs"); const h=fs.readFileSync("index.html","utf8"); const m=[...h.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)].map(x=>x[1]).filter(x=>x.trim()); fs.writeFileSync("/tmp/index-inline.js",m.join("\n"));' && node --check /tmp/index-inline.js
       - name: Run unit tests
         run: npm test
