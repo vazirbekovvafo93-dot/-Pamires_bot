@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
+const { validateMarketResponse } = require("./lib/data-quality");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -13,8 +14,12 @@ const upload = multer({
   }
 });
 
+const allowedOrigins = process.env.ALLOWED_ORIGIN
+  ? process.env.ALLOWED_ORIGIN.split(",").map(v => v.trim()).filter(Boolean)
+  : "*";
+
 app.use(cors({
-  origin: (process.env.ALLOWED_ORIGIN || "*").split(",").map(v => v.trim()),
+  origin: allowedOrigins,
   methods: ["GET", "POST"]
 }));
 app.use(express.json({ limit: "1mb" }));
@@ -75,7 +80,24 @@ app.get("/api/market/candles", async (req, res) => {
   try {
     const query = `?symbol=${encodeURIComponent(symbol)}&period=${period}&count=${count}`;
     const result = await proxyMarketRequest("/api/candles", query);
-    res.json(result);
+    const quality = validateMarketResponse(result, {
+      maxAgeMs: period * 3000,
+      // A three-period window tolerates normal publication delay while
+      // refusing to label substantially old candles as current.
+      nowMs: Date.now()
+    });
+    if (!quality.ok) {
+      console.warn("Market candle validation failed:", quality.errors.join("; "));
+      return res.status(502).json({
+        error: "Market data failed quality checks.",
+        data_quality: { status: quality.status, errors: quality.errors, warnings: quality.warnings }
+      });
+    }
+    res.json({
+      ...result,
+      data_quality: { status: quality.status, warnings: quality.warnings },
+      data_checked_at: new Date().toISOString()
+    });
   } catch (error) {
     res.status(error.status || 502).json({ error: error.message || "Market data service unavailable." });
   }
