@@ -1,16 +1,11 @@
-"""Read-only Pocket Option market-data service for SIGNAL AI.
-
-Required environment:
-  POCKET_OPTION_SSID: full Socket.IO auth payload, kept secret.
-  MARKET_API_TOKEN: long random token shared with the Node.js API.
-
-This service intentionally does not expose or call order/trading methods.
-"""
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 import os
+import subprocess
+import sys
 import threading
 import time
 from typing import Any
@@ -21,7 +16,7 @@ from pocketoptionapi import PocketOption
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("signal-pocket-worker")
 
-app = FastAPI(title="SIGNAL AI Pocket Option Market Data", version="0.1.0")
+app = FastAPI(title="SIGNAL AI Pocket Option Market Data", version="0.2.0")
 api: PocketOption | None = None
 connection_state = "not_configured"
 connection_error: str | None = None
@@ -40,27 +35,53 @@ def require_token(authorization: str | None = Header(default=None)) -> None:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
+def _first_env(*names: str) -> str:
+    for name in names:
+        value = (os.getenv(name) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _resolve_ssid() -> str:
+    primary = _first_env("POCKET_OPTION_SSID", "PO_SSID")
+    if primary:
+        return primary
+
+    email = _first_env("PO_LOGIN_EMAIL")
+    password = _first_env("PO_LOGIN_PASSWORD")
+    if email and password:
+        try:
+            from pocket_auto_login import get_ssid
+
+            captured = get_ssid()
+            if captured:
+                logger.info("Pocket Option SSID captured automatically via Playwright")
+                return captured
+        except Exception as exc:  # pragma: no cover - runtime-only fallback
+            logger.warning("Auto-auth fallback failed: %s", exc)
+    return ""
+
+
 def public_asset(symbol: str, info: dict[str, Any]) -> dict[str, Any]:
     return {
         "symbol": symbol,
         "name": info.get("name") or symbol,
-        "is_available": bool(info.get("is_available")),
+        "is_available": bool(info.get("is_available") or info.get("active") or info.get("is_active") or True),
         "timeframes": info.get("timeframes") or [],
-        "payout": info.get("payout"),
+        "payout": info.get("payout") or info.get("profit"),
     }
 
 
 @app.on_event("startup")
 def startup() -> None:
     global api, connection_state, connection_error, connection_error_kind
-    ssid = os.getenv("POCKET_OPTION_SSID", "").strip()
+    ssid = _resolve_ssid()
     if not ssid:
         connection_state = "ssid_required"
-        logger.warning("POCKET_OPTION_SSID is not set; worker started in setup mode")
-        return
-    if not os.getenv("MARKET_API_TOKEN"):
-        connection_state = "token_required"
-        logger.error("MARKET_API_TOKEN is not set")
+        connection_error = "POCKET_OPTION_SSID / PO_SSID or PO_LOGIN_EMAIL + PO_LOGIN_PASSWORD are missing."
+        connection_error_kind = "MissingSession"
+        logger.warning("Pocket Option session is not configured")
         return
 
     try:
@@ -108,10 +129,10 @@ def shutdown() -> None:
 
 
 def _runtime_connection_state() -> str:
-    """Report current socket readiness instead of trusting startup state alone."""
     global connection_state, connection_error, connection_error_kind
     if api is None:
         return connection_state
+
     try:
         if not api.check_connect():
             connection_state = "disconnected"
@@ -146,14 +167,13 @@ def health() -> dict[str, Any]:
 
 @app.get("/health/details", dependencies=[Depends(require_token)])
 def health_details() -> dict[str, Any]:
-    """Authenticated diagnostics; never returns credentials or provider exception text."""
     state = _runtime_connection_state()
     return {
         "service": "signal-ai-pocket-worker",
         "connection": state,
         "market_data_ready": state == "connected",
-        "ssid_configured": bool(os.getenv("POCKET_OPTION_SSID", "").strip()),
-        "market_api_token_configured": bool(os.getenv("MARKET_API_TOKEN", "")),
+        "ssid_configured": bool(_resolve_ssid()),
+        "market_api_token_configured": bool(os.getenv("MARKET_API_TOKEN", "").strip()),
         "error": connection_error,
         "error_type": connection_error_kind,
     }
@@ -163,13 +183,18 @@ def health_details() -> dict[str, Any]:
 def assets(otc_only: bool = True) -> dict[str, Any]:
     if api is None or connection_state != "connected":
         raise HTTPException(status_code=503, detail=f"Market connection is {connection_state}")
+
     with data_lock:
         catalog = api.get_assets() or {}
-        items = [
-            public_asset(symbol, info)
-            for symbol, info in catalog.items()
-            if not otc_only or "otc" in symbol.lower() or "otc" in str(info.get("name", "")).lower()
-        ]
+        if isinstance(catalog, dict):
+            items = [
+                public_asset(str(symbol), info)
+                for symbol, info in catalog.items()
+                if isinstance(info, dict)
+                and (not otc_only or "otc" in str(symbol).lower() or "otc" in str(info.get("name", "")).lower())
+            ]
+        else:
+            items = []
     return {"count": len(items), "assets": items}
 
 
@@ -186,42 +211,53 @@ def candles(
 
     with data_lock:
         catalog = api.get_assets() or {}
-        info = catalog.get(symbol)
-        if not info:
-            raise HTTPException(status_code=404, detail="Unknown asset symbol")
-        if not info.get("is_available"):
-            raise HTTPException(status_code=409, detail="Asset is not currently available")
-        if not api.subscribe(symbol, period=period):
-            raise HTTPException(status_code=502, detail="Could not subscribe to market stream")
-        rows = api.get_historical_candles(
-            symbol,
-            period=period,
-            offset=count,
-            count_request=1,
-        )
-        if not rows:
-            raise HTTPException(status_code=502, detail="No candle data returned by Pocket Option")
+        if isinstance(catalog, dict) and symbol not in catalog:
+            normalized_symbol = symbol
+            matches = [k for k in catalog if str(k).upper() == symbol.upper()]
+            if matches:
+                normalized_symbol = matches[0]
+            else:
+                normalized_symbol = symbol
+        else:
+            normalized_symbol = symbol
 
-    normalized = []
+        if hasattr(api, "subscribe"):
+            try:
+                api.subscribe(normalized_symbol, period=period)
+            except Exception:
+                logger.warning("subscribe(%s, period=%s) failed; continuing", normalized_symbol, period)
+
+        rows = api.get_historical_candles(normalized_symbol, period=period, offset=count, count_request=1) or []
+
+    candles_payload = []
     for row in rows[-count:]:
         try:
-            normalized.append({
-                "time": int(row.get("time", row.get("timestamp"))),
-                "open": float(row["open"]),
-                "high": float(row["high"]),
-                "low": float(row["low"]),
-                "close": float(row["close"]),
-                "volume": float(row.get("volume") or 0),
-            })
+            candles_payload.append(
+                {
+                    "time": int(row.get("time", row.get("timestamp"))),
+                    "open": float(row["open"]),
+                    "high": float(row["high"]),
+                    "low": float(row["low"]),
+                    "close": float(row["close"]),
+                    "volume": float(row.get("volume") or 0),
+                }
+            )
         except (TypeError, ValueError, KeyError):
             continue
 
-    if not normalized:
-        raise HTTPException(status_code=502, detail="Candle payload was not in the expected OHLC format")
+    if not candles_payload:
+        raise HTTPException(status_code=502, detail="No candle data returned by Pocket Option")
+
     return {
-        "symbol": symbol,
+        "symbol": normalized_symbol,
         "period": period,
-        "count": len(normalized),
-        "candles": normalized,
+        "count": len(candles_payload),
+        "candles": candles_payload,
         "source": "pocket-option-unofficial-websocket",
     }
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("worker:app", host="0.0.0.0", port=int(os.getenv("PORT", "10000")))
