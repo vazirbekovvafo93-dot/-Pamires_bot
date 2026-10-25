@@ -123,13 +123,14 @@ def candles(
     normalized = []
     for row in rows[-count:]:
         try:
+            get = (lambda key, default=None: row.get(key, default)) if isinstance(row, dict) else (lambda key, default=None: getattr(row, key, default))
             normalized.append({
-                "time": int(row.get("time", row.get("timestamp"))),
-                "open": float(row["open"]),
-                "high": float(row["high"]),
-                "low": float(row["low"]),
-                "close": float(row["close"]),
-                "volume": float(row.get("volume") or 0),
+                "time": int(get("time", get("timestamp"))),
+                "open": float(get("open")),
+                "high": float(get("high")),
+                "low": float(get("low")),
+                "close": float(get("close")),
+                "volume": float(get("volume", 0) or 0),
             })
         except (TypeError, ValueError, KeyError):
             continue
