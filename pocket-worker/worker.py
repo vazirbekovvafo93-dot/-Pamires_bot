@@ -1,10 +1,8 @@
-"""Read-only Pocket Option market-data service for SIGNAL AI.
+"""Read-only Pocket Option market-data worker.
 
-Required environment:
-  PO_SSID: full Socket.IO auth payload, kept secret (POCKET_OPTION_SSID is accepted as a legacy fallback).
-  MARKET_API_TOKEN: long random token shared with the Node.js API.
-
-This service intentionally does not expose or call order/trading methods.
+Uses the read-only adapter ported from PMSignalPro:
+  pocket_feed_cmp.py + pocket_option_cmp.py
+SSID remains in Render environment only (PO_SSID or legacy POCKET_OPTION_SSID).
 """
 from __future__ import annotations
 
@@ -12,21 +10,16 @@ import hmac
 import logging
 import os
 import threading
-import time
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
-from pocketoptionapi import PocketOption
+import pocket_feed_cmp as po_feed
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("signal-pocket-worker")
 
-app = FastAPI(title="SIGNAL AI Pocket Option Market Data", version="0.1.0")
-api: PocketOption | None = None
-connection_state = "not_configured"
-connection_error: str | None = None
+app = FastAPI(title="SIGNAL AI Pocket Option Market Data", version="0.2.0")
 data_lock = threading.Lock()
-
 ALLOWED_PERIODS = {5, 15, 60, 300, 900, 3600}
 
 
@@ -34,95 +27,75 @@ def require_token(authorization: str | None = Header(default=None)) -> None:
     expected = os.getenv("MARKET_API_TOKEN", "")
     if not expected:
         raise HTTPException(status_code=503, detail="Market worker token is not configured")
-    supplied = authorization or ""
-    if not hmac.compare_digest(supplied, f"Bearer {expected}"):
+    if not hmac.compare_digest(authorization or "", f"Bearer {expected}"):
         raise HTTPException(status_code=401, detail="Unauthorized")
-
-
-def public_asset(symbol: str, info: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "symbol": symbol,
-        "name": info.get("name") or symbol,
-        "is_available": bool(info.get("is_available")),
-        "timeframes": info.get("timeframes") or [],
-        "payout": info.get("payout"),
-    }
 
 
 @app.on_event("startup")
 def startup() -> None:
-    global api, connection_state, connection_error
-    ssid = (os.getenv("PO_SSID") or os.getenv("POCKET_OPTION_SSID") or "").strip()
-    if not ssid:
-        connection_state = "ssid_required"
-        logger.warning("PO_SSID is not set; worker started in setup mode")
+    if not po_feed.configured():
+        logger.warning("Pocket Option SSID is not set; worker started in setup mode")
         return
     if not os.getenv("MARKET_API_TOKEN"):
-        connection_state = "token_required"
         logger.error("MARKET_API_TOKEN is not set")
-        return
-
-    try:
-        candidate = PocketOption(ssid)
-        ok, error = candidate.connect()
-        if not ok:
-            connection_state = "connection_failed"
-            connection_error = str(error or "Connection failed")[:240]
-            logger.error("Pocket Option connection failed: %s", connection_error)
-            return
-
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            if candidate.check_connect() and candidate.is_time_synced():
-                api = candidate
-                connection_state = "connected"
-                connection_error = None
-                logger.info("Pocket Option WebSocket connected and time synchronized")
-                return
-            time.sleep(0.25)
-
-        candidate.disconnect_websocket()
-        connection_state = "time_sync_timeout"
-        connection_error = "Server time did not synchronize within 30 seconds"
-        logger.error(connection_error)
-    except Exception as exc:
-        connection_state = "connection_failed"
-        connection_error = str(exc)[:240]
-        logger.exception("Pocket Option initialization failed")
 
 
 @app.on_event("shutdown")
 def shutdown() -> None:
-    global api
-    if api is not None:
-        try:
+    try:
+        api = po_feed.client()
+        if api is not None:
             api.disconnect_websocket()
-        except Exception:
-            logger.exception("Error closing Pocket Option WebSocket")
-        api = None
+    except Exception:
+        logger.exception("Error closing Pocket Option WebSocket")
 
 
 @app.get("/health")
 def health() -> dict[str, Any]:
+    # Do not attempt an expensive authentication on every health probe.
+    configured = po_feed.configured()
+    if not configured:
+        state = "ssid_required"
+    else:
+        try:
+            api = po_feed.client()
+            state = "connected" if api and api.check_connect() else "connection_failed"
+        except Exception:
+            state = "connection_failed"
+    return {"service": "signal-ai-pocket-worker", "status": "ok", "connection": state}
+
+
+def get_catalog() -> dict[str, Any]:
+    api = po_feed.client()
+    if api is None or not api.check_connect():
+        raise HTTPException(status_code=503, detail="Pocket Option connection is not ready")
+    catalog = po_feed.get_assets(force=True)
+    if not isinstance(catalog, dict) or not catalog:
+        raise HTTPException(status_code=502, detail="Pocket Option returned no asset catalog")
+    return catalog
+
+
+def public_asset(symbol: str, info: Any) -> dict[str, Any]:
+    name = str(getattr(info, "name", None) or getattr(info, "symbol", None) or symbol)
     return {
-        "service": "signal-ai-pocket-worker",
-        "status": "ok",
-        "connection": connection_state,
+        "symbol": str(getattr(info, "symbol", None) or symbol),
+        "name": name,
+        "is_available": bool(getattr(info, "is_active", True)),
+        "timeframes": sorted(ALLOWED_PERIODS),
+        "payout": getattr(info, "payout", None),
     }
 
 
 @app.get("/api/assets", dependencies=[Depends(require_token)])
 def assets(otc_only: bool = True) -> dict[str, Any]:
-    if api is None or connection_state != "connected":
-        raise HTTPException(status_code=503, detail=f"Market connection is {connection_state}")
     with data_lock:
-        catalog = api.get_assets() or {}
+        catalog = get_catalog()
         items = [
             public_asset(symbol, info)
             for symbol, info in catalog.items()
-            if not otc_only or "otc" in symbol.lower() or "otc" in str(info.get("name", "")).lower()
+            if not otc_only or "otc" in str(symbol).lower() or "otc" in str(getattr(info, "name", "")).lower()
         ]
-    return {"count": len(items), "assets": items}
+    return {"count": len(items), "assets": items, "source": "pocket-option-unofficial-websocket"}
 
 
 @app.get("/api/candles", dependencies=[Depends(require_token)])
@@ -133,47 +106,43 @@ def candles(
 ) -> dict[str, Any]:
     if period not in ALLOWED_PERIODS:
         raise HTTPException(status_code=400, detail=f"Unsupported period; allowed: {sorted(ALLOWED_PERIODS)}")
-    if api is None or connection_state != "connected":
-        raise HTTPException(status_code=503, detail=f"Market connection is {connection_state}")
-
     with data_lock:
-        catalog = api.get_assets() or {}
-        info = catalog.get(symbol)
-        if not info:
+        catalog = get_catalog()
+        if symbol not in catalog:
             raise HTTPException(status_code=404, detail="Unknown asset symbol")
-        if not info.get("is_available"):
+        meta = catalog[symbol]
+        if not bool(getattr(meta, "is_active", True)):
             raise HTTPException(status_code=409, detail="Asset is not currently available")
-        if not api.subscribe(symbol, period=period):
-            raise HTTPException(status_code=502, detail="Could not subscribe to market stream")
-        rows = api.get_historical_candles(
-            symbol,
-            period=period,
-            offset=count,
-            count_request=1,
-        )
-        if not rows:
-            raise HTTPException(status_code=502, detail="No candle data returned by Pocket Option")
+        try:
+            rows, resolved = po_feed.candles(symbol, timeframe=_timeframe(period), count=count)
+        except Exception as exc:
+            logger.warning("Pocket Option candles unavailable for requested symbol (details omitted)")
+            raise HTTPException(status_code=502, detail="Pocket Option candle feed is unavailable for this symbol/timeframe") from exc
 
     normalized = []
     for row in rows[-count:]:
         try:
+            get = (lambda key, default=None: row.get(key, default)) if isinstance(row, dict) else (lambda key, default=None: getattr(row, key, default))
             normalized.append({
-                "time": int(row.get("time", row.get("timestamp"))),
-                "open": float(row["open"]),
-                "high": float(row["high"]),
-                "low": float(row["low"]),
-                "close": float(row["close"]),
-                "volume": float(row.get("volume") or 0),
+                "time": int(get("time", get("timestamp"))),
+                "open": float(get("open")),
+                "high": float(get("high")),
+                "low": float(get("low")),
+                "close": float(get("close")),
+                "volume": float(get("volume", 0) or 0),
             })
         except (TypeError, ValueError, KeyError):
             continue
-
     if not normalized:
-        raise HTTPException(status_code=502, detail="Candle payload was not in the expected OHLC format")
+        raise HTTPException(status_code=502, detail="Pocket Option returned candles in an unsupported format")
     return {
-        "symbol": symbol,
+        "symbol": resolved,
         "period": period,
         "count": len(normalized),
         "candles": normalized,
         "source": "pocket-option-unofficial-websocket",
     }
+
+
+def _timeframe(period: int) -> str:
+    return {5: "S5", 15: "S15", 60: "M1", 300: "M5", 900: "M15", 3600: "H1"}[period]

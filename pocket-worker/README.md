@@ -1,28 +1,25 @@
 # SIGNAL AI — Pocket Option market-data worker
 
-Separate, read-only service. It does not open orders or expose the SSID.
+Existing Render service: `signal-ai-pocket-worker`. This worker is read-only and only exposes authenticated asset/candle endpoints. It does not place trades.
 
-## Deploy as a separate Render web service
+## Render environment
 
-1. Create a **new** Web Service from this repository; do not replace the existing Node.js API.
-2. Choose Docker runtime and set **Root Directory** to `pocket-worker`.
-3. Add environment variables in Render:
-   - `MARKET_API_TOKEN`: generate a long random secret (at least 32 bytes).
-   - `POCKET_OPTION_SSID`: leave unset until the service is built and you are ready to connect.
-4. Deploy. `GET /health` should show `ssid_required` until SSID is added.
-5. Add `POCKET_OPTION_SSID` manually in Render Environment using the full auth payload captured from your own session. Never put it in GitHub, frontend code, chat, or logs.
-6. Redeploy. Check `GET /health`; only proceed when connection is `connected`.
+Set these variables on the existing worker service:
 
-The protected endpoints require `Authorization: Bearer <MARKET_API_TOKEN>`:
+- `PO_SSID` or the legacy key `POCKET_OPTION_SSID`: the complete Pocket Option auth payload from your own current session. Keep it only in Render Environment.
+- `MARKET_API_TOKEN`: a long random secret. Use the same value on the Node API service, where it is stored server-side.
+
+After saving the variables, let Render redeploy. Check `GET /health`; the connection should read `connected`. If it reports `connection_failed`, recapture the SSID rather than posting it in chat or committing it to GitHub.
+
+## Endpoints
+
+The existing Node API proxies to this worker, using a server-side Bearer token:
+
 - `GET /api/assets?otc_only=true`
 - `GET /api/candles?symbol=EURUSD_otc&period=60&count=100`
 
-Allowed candle periods are 5, 15, 60, 300, 900, and 3600 seconds. A period being accepted by this service does not guarantee Pocket Option will provide it for every asset. The third-party client may aggregate sub-minute bars from ticks.
+Allowed candle periods: 5, 15, 60, 300, 900, and 3600 seconds. Support depends on what Pocket Option actually returns for a particular asset/timeframe.
 
-## Important
+## Limitations
 
-- This uses an **unofficial** client and is not guaranteed to work with future Pocket Option protocol changes.
-- The upstream client currently sets `requests.Session.verify = False`. Review/fix this before production use; this worker currently only needs the WebSocket path, but the dependency still contains that HTTP helper.
-- No trade/order methods are called.
-- Do not use your primary account until you have reviewed Pocket Option's rules and tested with a permitted session.
-- Health endpoint intentionally omits errors and secrets; service logs must never include the SSID.
+This integration uses an unofficial WebSocket protocol implementation. Pocket Option can change the protocol, expire session IDs, or restrict access; successful deployment alone does not prove authentication or data retrieval. The implementation is kept read-only and does not expose order/trade methods. The session ID is a sensitive account credential—never place it in frontend code, GitHub, chat, or logs.
