@@ -1,7 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
-const { validateCandles } = require("./lib/data-quality");
+const { validateMarketResponse } = require("./lib/data-quality");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -80,7 +80,7 @@ app.get("/api/market/candles", async (req, res) => {
   try {
     const query = `?symbol=${encodeURIComponent(symbol)}&period=${period}&count=${count}`;
     const result = await proxyMarketRequest("/api/candles", query);
-    const quality = validateCandles(result?.candles, {
+    const quality = validateMarketResponse(result, {
       maxAgeMs: period * 3000,
       // A three-period window tolerates normal publication delay while
       // refusing to label substantially old candles as current.
