@@ -93,7 +93,7 @@ def assets(otc_only: bool = True) -> dict[str, Any]:
         items = [
             public_asset(symbol, info)
             for symbol, info in catalog.items()
-            if not otc_only or "otc" in str(symbol).lower() or "otc" in str(getattr(info, "name", "")).lower()
+            if not otc_only or "otc" in str(symbol).lower() or "otc" in str(info.get("name", "") if isinstance(info, dict) else getattr(info, "name", "")).lower()
         ]
     return {"count": len(items), "assets": items, "source": "pocket-option-unofficial-websocket"}
 
