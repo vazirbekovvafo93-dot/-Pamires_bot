@@ -13,6 +13,7 @@ import threading
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from pocketoptionapi import PocketOption
 import pocket_feed_cmp as po_feed
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -29,17 +30,6 @@ def require_token(authorization: str | None = Header(default=None)) -> None:
         raise HTTPException(status_code=503, detail="Market worker token is not configured")
     if not hmac.compare_digest(authorization or "", f"Bearer {expected}"):
         raise HTTPException(status_code=401, detail="Unauthorized")
-
-
-def status_snapshot() -> dict[str, Any]:
-    configured = po_feed.configured()
-    api = po_feed.client() if configured else None
-    connected = bool(api and api.check_connect())
-    return {
-        "service": "signal-ai-pocket-worker",
-        "status": "ok",
-        "connection": "connected" if connected else ("ssid_required" if not configured else "connection_failed"),
-    }
 
 
 @app.on_event("startup")
