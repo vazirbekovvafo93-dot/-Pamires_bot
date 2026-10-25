@@ -15,38 +15,6 @@ from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class Direction(str, enum.Enum):
-    """Trade direction. The value is exactly what the server's ``action`` wants."""
-
-    CALL = "call"   # up   / higher  -> server command 0
-    PUT = "put"     # down / lower   -> server command 1
-
-    @classmethod
-    def coerce(cls, value: "Direction | str | int") -> "Direction":
-        """Accept many spellings: 'call'/'buy'/'up'/0, 'put'/'sell'/'down'/1, ..."""
-        if isinstance(value, Direction):
-            return value
-        if isinstance(value, bool):  # guard: bool is an int subclass
-            raise ValueError("direction must not be a bool")
-        if isinstance(value, int):
-            return cls.CALL if value == 0 else cls.PUT
-        key = str(value).strip().lower()
-        mapping = {
-            "call": cls.CALL, "buy": cls.CALL, "up": cls.CALL, "higher": cls.CALL, "0": cls.CALL,
-            "put": cls.PUT, "sell": cls.PUT, "down": cls.PUT, "lower": cls.PUT, "1": cls.PUT,
-        }
-        if key not in mapping:
-            raise ValueError(
-                f"Invalid direction {value!r} — use 'call'/'up' or 'put'/'down'"
-            )
-        return mapping[key]
-
-    @property
-    def command(self) -> int:
-        """The numeric form the server echoes back in a Deal (0=call, 1=put)."""
-        return 0 if self is Direction.CALL else 1
-
-
 class Balance(BaseModel):
     """Account balance snapshot (from ``successupdateBalance``)."""
 
@@ -54,43 +22,6 @@ class Balance(BaseModel):
 
     balance: float
     is_demo: bool = Field(True, alias="isDemo")
-
-
-class Deal(BaseModel):
-    """A single trade, open or closed (from ``successopenOrder`` / a ``deals[]`` item)."""
-
-    model_config = ConfigDict(populate_by_name=True, extra="allow")
-
-    id: str
-    asset: str
-    amount: float
-    command: int                                        # 0=call/up, 1=put/down
-    profit: float = 0.0                                 # >0 win, <0 loss (== -amount)
-    percent_profit: int = Field(0, alias="percentProfit")
-    percent_loss: int = Field(0, alias="percentLoss")
-    open_price: float = Field(0.0, alias="openPrice")
-    close_price: float = Field(0.0, alias="closePrice")
-    open_timestamp: int = Field(0, alias="openTimestamp")   # unix — source of truth
-    close_timestamp: int = Field(0, alias="closeTimestamp")
-    request_id: int = Field(0, alias="requestId")           # correlates open<->result
-    option_type: int = Field(100, alias="optionType")
-    currency: str = "USD"
-    is_demo: bool = Field(True, alias="isDemo")
-
-    @property
-    def direction(self) -> Direction:
-        return Direction.CALL if self.command == 0 else Direction.PUT
-
-    @property
-    def is_closed(self) -> bool:
-        return self.close_price != 0
-
-    @property
-    def won(self) -> Optional[bool]:
-        """True/False once closed, None while still open."""
-        if not self.is_closed:
-            return None
-        return self.profit > 0
 
 
 # Positional indices within an updateAssets row (verified from captured data).
