@@ -1,34 +1,41 @@
 # Data quality helper
 
-This module provides structural validation for OHLC candle data. It does not calculate forecasts or recommend actions.
+This module validates read-only market-data payloads. It does not calculate forecasts or recommend actions.
 
-## API
+## Candle validation
 
 ```js
 const { validateCandles } = require("./lib/data-quality");
 
 const result = validateCandles(candles, {
-  // Optional maximum allowed age in milliseconds.
-  maxAgeMs: 3 * 60 * 1000
+  maxAgeMs: 3 * 60 * 1000,
+  // Optional deterministic clock for tests:
+  // nowMs: Date.now()
 });
-
-if (!result.ok) {
-  console.error(result.errors);
-}
-if (result.warnings.length) {
-  console.warn(result.warnings);
-}
 ```
 
-Each candle should contain finite numeric `open`, `high`, `low`, and `close` values. A timestamp can be provided as `timestamp`, `time`, or `t`; epoch seconds, milliseconds, and microseconds are normalized.
+Each candle should contain finite numeric `open`, `high`, `low`, and `close` values. A timestamp can be provided as `timestamp`, `time`, or `t`; epoch seconds, milliseconds, and microseconds are normalized. The result includes `ok`, `status`, `errors`, `warnings`, `lastTimestamp`, and `ageMs`.
+
+## Snapshot validation
+
+```js
+const { validateSnapshot } = require("./lib/data-quality");
+
+const result = validateSnapshot({
+  price: 1.2345,
+  candle_time: Date.now()
+});
+```
+
+A snapshot must be an object and include a finite numeric `price`. Known optional numeric fields are checked when supplied; missing optional fields are reported as warnings. This validates payload shape only and does not generate or evaluate a signal.
 
 ## Status meanings
 
 - `ok`: no validation errors or warnings were detected.
-- `warning`: no hard validation errors, but one or more caveats (for example, missing timestamps) prevent full verification.
+- `warning`: no hard validation errors, but one or more caveats prevent full verification.
 - `invalid`: at least one validation error was detected.
 
-If timestamps are absent, freshness cannot be confirmed. The caller must choose a freshness threshold appropriate to the data's documented timestamp format and sampling interval. This helper is intentionally standalone and is not wired into application routes.
+The helper is intentionally standalone and is not wired into application routes. Callers must decide where validation belongs and select freshness thresholds appropriate to the documented data source and sampling interval.
 
 ## Tests
 
@@ -38,4 +45,4 @@ Run the unit tests with Node.js 20 or newer:
 npm test
 ```
 
-The tests cover timestamp normalization, valid and invalid OHLC values, missing timestamps, stale data, empty payloads, out-of-order timestamps, and invalid timestamps.
+Tests cover timestamp normalization, OHLC consistency, missing timestamps, stale/future data, empty payloads, ordering, and snapshot validation.
