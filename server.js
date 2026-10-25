@@ -166,7 +166,6 @@ async function startTelegramBot() {
   }
 
   let pollingStopped = false;
-  let pollingStarted = false;
 
   async function poll() {
     if (pollingStopped) return;
