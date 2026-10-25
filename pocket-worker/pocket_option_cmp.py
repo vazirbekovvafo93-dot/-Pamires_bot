@@ -173,7 +173,6 @@ class CmpPocketOption:
             self._client = AsyncPocketOption(
                 self.ssid,
                 demo=self.is_demo,
-                allow_real=False,
                 origin=os.getenv("PO_ORIGIN", "https://m.pocketoption.com"),
                 user_agent=os.getenv("PO_USER_AGENT") or None,
                 reconnection=True,
