@@ -2,9 +2,10 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { normalizeTimestamp, validateCandles } = require("../lib/data-quality");
 
-test("normalizes epoch seconds and milliseconds", () => {
+test("normalizes epoch seconds, milliseconds, and microseconds", () => {
   assert.equal(normalizeTimestamp(1_700_000_000), 1_700_000_000_000);
   assert.equal(normalizeTimestamp(1_700_000_000_000), 1_700_000_000_000);
+  assert.equal(normalizeTimestamp(1_700_000_000_000_000), 1_700_000_000_000);
 });
 
 test("accepts a valid candle with a recent timestamp", () => {
@@ -39,6 +40,16 @@ test("rejects stale data when a freshness threshold is provided", () => {
   }], { maxAgeMs: 1_000 });
   assert.equal(result.ok, false);
   assert.match(result.errors.join(" "), /stale/i);
+});
+
+test("warns when the latest timestamp is substantially in the future", () => {
+  const result = validateCandles([{
+    open: 10, high: 12, low: 9, close: 11,
+    timestamp: Date.now() + 120_000
+  }]);
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "warning");
+  assert.match(result.warnings.join(" "), /future/i);
 });
 
 test("rejects an empty payload", () => {
