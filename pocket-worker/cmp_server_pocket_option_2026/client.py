@@ -7,12 +7,9 @@ from typing import Any, Dict, List, Optional
 
 from ._transport import Transport
 from .constants import Region
-from .exceptions import OrderTimeout
-from .models import Asset, Balance, Candle
+from .models import Asset, Candle
 
 logger = logging.getLogger("cmp_server_pocket_option_2026.client")
-
-_MAX_REQUEST_ID = 2_147_483_647  # int32 ceiling the server expects
 
 
 class AsyncPocketOption:
@@ -31,11 +28,9 @@ class AsyncPocketOption:
         self._allow_real = allow_real
 
         # state
-        self._balance: Optional[Balance] = None
         self._assets: Dict[str, Asset] = {}
 
         # readiness events (server pushes these shortly after auth)
-        self._balance_ready = asyncio.Event()
         self._assets_ready = asyncio.Event()
 
         # (asset, timeframe) -> future for a pending candle request
@@ -49,7 +44,6 @@ class AsyncPocketOption:
 
         # event -> handler
         self._handlers = {
-            "successupdateBalance": self._on_balance,
             "updateAssets": self._on_assets,
             "loadHistoryPeriod": self._on_history,
             "updateHistoryNewFast": self._on_history,
@@ -104,18 +98,6 @@ class AsyncPocketOption:
         return self._t.connected
 
     # ------------------------------------------------------------------- state
-
-    async def get_balance(self, *, timeout: float = 5.0) -> Balance:
-        """Return the current balance, waiting for it if not received yet."""
-        if self._balance is None:
-            await asyncio.wait_for(self._balance_ready.wait(), timeout)
-        assert self._balance is not None
-        return self._balance
-
-    @property
-    def balance(self) -> Optional[Balance]:
-        """Last known balance without waiting (may be None early on)."""
-        return self._balance
 
     def assets(self, *, active_only: bool = False) -> List[Asset]:
         """All known assets. Set ``active_only`` to drop closed ones."""
@@ -205,10 +187,6 @@ class AsyncPocketOption:
             await handler(data)
         except Exception:
             logger.exception("Handler error on event %r", event)
-
-    async def _on_balance(self, data: Any) -> None:
-        self._balance = Balance.model_validate(data)
-        self._balance_ready.set()
 
     async def _on_assets(self, data: Any) -> None:
         if not isinstance(data, list):
