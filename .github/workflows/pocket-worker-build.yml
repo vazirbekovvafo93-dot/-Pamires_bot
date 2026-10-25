@@ -1,0 +1,39 @@
+name: Pocket worker build checks
+
+on:
+  pull_request:
+    paths:
+      - "pocket-worker/**"
+      - ".github/workflows/pocket-worker-build.yml"
+  push:
+    branches:
+      - "feature/pocket-option-ssid-market-data"
+      - "feat/pocket-short-timeframe-api"
+      - "ci/pocket-worker-build-checks"
+    paths:
+      - "pocket-worker/**"
+      - ".github/workflows/pocket-worker-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  python-and-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install worker dependencies
+        working-directory: pocket-worker
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: Compile worker modules
+        working-directory: pocket-worker
+        run: python -m compileall -q .
+      - name: Build worker Docker image
+        run: docker build -t pamires-pocket-worker:ci pocket-worker
