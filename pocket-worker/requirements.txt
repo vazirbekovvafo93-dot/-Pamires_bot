@@ -5,3 +5,5 @@ pydantic>=2.0
 requests[socks]>=2.32.3
 websockets>=12.0
 aiohttp-socks>=0.9.0
+# Required by pocket_option_cmp.py (AsyncPocketOption adapter).
+git+https://github.com/Rufus011/CMP-server_Pocket-option-2026.git
